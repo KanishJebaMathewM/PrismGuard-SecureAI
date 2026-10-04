@@ -21,3 +21,12 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Python backend – generated artifacts
+backend/prismguard.db
+backend/models/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
