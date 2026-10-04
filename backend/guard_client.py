@@ -19,15 +19,12 @@ load_dotenv(_PROJECT_ROOT / ".env")
 logger = logging.getLogger(__name__)
 
 _BASE_URL = (os.getenv("SECURE_GUARD_API_URL") or os.getenv("GUARD_URL", "")).rstrip("/")
-_TOKEN = os.getenv("GUARD_TOKEN", "")
+_TOKEN = os.getenv("SECURE_GUARD_TOKEN") or os.getenv("GUARD_TOKEN", "")
 _TIMEOUT = float(os.getenv("GUARD_TIMEOUT_SECONDS", "8.0"))
 _MAX_RETRY = int(os.getenv("GUARD_MAX_RETRIES", "2"))
 
-# Candidate endpoints to try, in order
-_CANDIDATE_ENDPOINTS = ["/guard", "/check", "/analyze", "/v1/guard"]
-
-# Cache the working endpoint so discovery only runs once per process
-_discovered_endpoint: str | None = None
+# The confirmed working endpoint for the SecureAI Guard API
+_PROMPT_ENDPOINT = "/v1/check/prompt"
 
 
 @dataclass
@@ -40,103 +37,122 @@ class GuardResult:
 
 
 def _parse_guard_response(data: dict) -> GuardResult:
-    """Gracefully parse multiple possible JSON shapes from the guard API."""
-    blocked = bool(
-        data.get("blocked")
-        or data.get("is_blocked")
-        or data.get("is_malicious")
-        or data.get("flagged")
-        or data.get("unsafe")
-        or (data.get("result") in ("blocked", "malicious", "unsafe"))
-        or (data.get("action") in ("block", "deny", "reject"))
-    )
-    reason = (
-        data.get("reason")
-        or data.get("message")
-        or data.get("detail")
-        or ("Blocked by SecureGuard" if blocked else "")
-    )
-    confidence = float(data.get("confidence") or data.get("score") or data.get("probability") or 0.0)
-    return GuardResult(blocked=blocked, reason=str(reason), confidence=confidence, raw=data)
+    """Parse the SecureAI Guard API response shape.
+
+    The API returns:
+      {
+        "allowed": bool,
+        "checks": { "injection": {"flagged": bool, "confidence": "HIGH"|...}, ... },
+        "flags": ["injection", ...],
+        "status": "complete"
+      }
+    blocked = not allowed
+    """
+    # Primary signal: allowed field (SecureAI Guard v1 shape)
+    if "allowed" in data:
+        blocked = not bool(data["allowed"])
+    else:
+        # Fallback for other possible shapes
+        blocked = bool(
+            data.get("blocked")
+            or data.get("is_blocked")
+            or data.get("is_malicious")
+            or data.get("flagged")
+            or data.get("unsafe")
+            or (data.get("result") in ("blocked", "malicious", "unsafe"))
+            or (data.get("action") in ("block", "deny", "reject"))
+        )
+
+    # Build a human-readable reason from the flags / checks
+    flags: list[str] = data.get("flags", [])
+    checks: dict = data.get("checks", {})
+    if flags:
+        reason_parts = []
+        for flag in flags:
+            check = checks.get(flag, {})
+            conf = check.get("confidence", "")
+            types = check.get("types", [])
+            detail = f"{flag}"
+            if conf:
+                detail += f" (confidence: {conf})"
+            if types:
+                detail += f" [{', '.join(types)}]"
+            reason_parts.append(detail)
+        reason = "Blocked by SecureAI Guard: " + "; ".join(reason_parts)
+    elif blocked:
+        reason = data.get("reason") or data.get("message") or "Blocked by SecureAI Guard"
+    else:
+        reason = ""
+
+    # Derive a numeric confidence from the injection check if present
+    injection_conf_map = {"HIGH": 0.95, "MEDIUM": 0.65, "LOW": 0.35}
+    inj_check = checks.get("injection", {})
+    raw_conf = inj_check.get("confidence", "")
+    confidence = injection_conf_map.get(str(raw_conf).upper(), 0.0)
+    if not confidence:
+        confidence = float(data.get("confidence") or data.get("score") or data.get("probability") or 0.0)
+
+    return GuardResult(blocked=blocked, reason=reason, confidence=confidence, raw=data)
 
 
 async def check_prompt(text: str, resource: str) -> GuardResult:
-    """Call the SecureGuard API to analyze a prompt.
+    """Call the SecureAI Guard API to analyze a prompt.
 
-    Tries each candidate endpoint in order. Retries up to _MAX_RETRY times on
-    network errors. Returns GuardResult(blocked=False, unavailable=True) if the
-    API is unreachable (fail-open).
+    Uses the confirmed endpoint POST /v1/check/prompt with payload {"text": ...}.
+    Retries up to _MAX_RETRY times on network errors.
+    Returns GuardResult(blocked=False, unavailable=True) if the API is unreachable (fail-open).
     """
-    global _discovered_endpoint
-
     if not _BASE_URL or not _TOKEN:
-        logger.warning("GUARD_URL or GUARD_TOKEN not set; skipping guard check")
+        logger.warning("SECURE_GUARD_API_URL or SECURE_GUARD_TOKEN not set; skipping guard check")
         return GuardResult(blocked=False, unavailable=True, reason="Guard not configured")
 
     headers = {
         "Authorization": f"Bearer {_TOKEN}",
         "Content-Type": "application/json",
     }
-    payload = {"prompt": text, "context": resource}
+    # The SecureAI Guard API expects {"text": "..."} — not {"prompt": ...}
+    payload = {"text": text}
+    url = f"{_BASE_URL}{_PROMPT_ENDPOINT}"
 
     for attempt in range(_MAX_RETRY + 1):
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                # If we already know a working endpoint, use it directly
-                if _discovered_endpoint is not None:
-                    endpoints_to_try = [_discovered_endpoint]
-                else:
-                    endpoints_to_try = _CANDIDATE_ENDPOINTS
+                resp = await client.post(url, json=payload, headers=headers)
 
-                for ep in endpoints_to_try:
-                    try:
-                        resp = await client.post(
-                            f"{_BASE_URL}{ep}",
-                            json=payload,
-                            headers=headers,
-                        )
-                        if resp.status_code == 403:
-                            # 403 can itself be a "blocked" signal; cache only if it's a
-                            # deliberate block decision, not a misconfigured-auth rejection.
-                            # We can't distinguish these, so cache only on 2xx (see below).
-                            return GuardResult(blocked=True, reason="Blocked by SecureGuard (403)", confidence=1.0)
-                        if 200 <= resp.status_code < 300:
-                            # Only cache on confirmed 2xx — avoids locking onto a 401/404
-                            # endpoint that would permanently reject all future requests.
-                            _discovered_endpoint = ep
-                            raw = resp.json() if resp.content else {}
-                            return _parse_guard_response(raw)
-                        # 4xx (non-403) or 5xx — try next endpoint without caching
-                    except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError):
-                        # Network issue on this specific endpoint — try next
-                        continue
-                    except Exception as exc:
-                        logger.warning("Guard API endpoint %s unexpected error: %s", ep, exc)
-                        continue
-
-                # All endpoints failed this attempt
-                if attempt < _MAX_RETRY:
-                    logger.warning("Guard API: all endpoints failed on attempt %d, retrying", attempt + 1)
-                    continue
-                else:
-                    logger.warning(
-                        "guard_unavailable: all endpoints exhausted after %d attempts; failing open "
-                        "(event=guard_unavailable url=%s)",
-                        _MAX_RETRY + 1, _BASE_URL,
+                if resp.status_code == 403:
+                    return GuardResult(
+                        blocked=True,
+                        reason="Blocked by SecureAI Guard (403 Forbidden)",
+                        confidence=1.0,
                     )
-                    return GuardResult(blocked=False, unavailable=True, reason="Guard unavailable")
+                if 200 <= resp.status_code < 300:
+                    raw = resp.json() if resp.content else {}
+                    return _parse_guard_response(raw)
+
+                # Non-2xx, non-403 — log and retry
+                logger.warning(
+                    "Guard API returned %d on attempt %d: %s",
+                    resp.status_code, attempt + 1, resp.text[:200],
+                )
+                if attempt < _MAX_RETRY:
+                    continue
+                return GuardResult(
+                    blocked=False,
+                    unavailable=True,
+                    reason=f"Guard returned HTTP {resp.status_code}",
+                )
 
         except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as exc:
             logger.warning(
                 "guard_unavailable: network error on attempt %d (event=guard_unavailable url=%s): %s",
-                attempt + 1, _BASE_URL, exc,
+                attempt + 1, url, exc,
             )
             if attempt == _MAX_RETRY:
                 return GuardResult(blocked=False, unavailable=True, reason=str(exc))
         except Exception as exc:
             logger.warning(
                 "guard_unavailable: unexpected error (event=guard_unavailable url=%s): %s",
-                _BASE_URL, exc,
+                url, exc,
             )
             return GuardResult(blocked=False, unavailable=True, reason=str(exc))
 
