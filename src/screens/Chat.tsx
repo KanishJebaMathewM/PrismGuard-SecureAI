@@ -13,6 +13,12 @@ import {
   Lock,
   AlertTriangle,
 } from 'lucide-react';
+import {
+  bankingDB, bankingRegulations, interestRates,
+  governmentDB, governmentPolicies,
+  companyDB, financialReports, internalDocs,
+  researchDB, datasets,
+} from '@/database';
 import type { ChatMessage, ResourceType, SecurityCheckStep } from '@/types';
 
 const pipelineSteps = [
@@ -29,7 +35,7 @@ const resourceNames: Record<string, string> = {
   Research: 'Research Model',
 };
 
-const blockedKeywords = ['ignore previous', 'ignore all', 'reveal customer', 'reveal sensitive', 'export all', 'reveal all', 'bypass', 'admin mode', 'developer mode', 'grant me access', 'system prompt', 'jailbreak'];
+const blockedKeywords = ['ignore previous', 'ignore all', 'reveal customer', 'reveal sensitive', 'export all', 'reveal all', 'bypass', 'admin mode', 'developer mode', 'grant me access', 'system prompt', 'jailbreak', 'salary', 'payroll'];
 
 const quickPrompts = [
   { label: 'Get banking insights', text: 'What is the current interest rate for savings accounts?', resource: 'Banking' as ResourceType },
@@ -37,6 +43,129 @@ const quickPrompts = [
   { label: 'Search company resources', text: 'Find the latest quarterly revenue report.', resource: 'Company' as ResourceType },
   { label: 'Research public data', text: 'Find recent papers on quantum computing.', resource: 'Research' as ResourceType },
 ];
+
+function queryDatabase(text: string, resource: ResourceType): string {
+  const lower = text.toLowerCase();
+
+  if (resource === 'Banking') {
+    if (lower.includes('interest rate') || lower.includes('interest rates')) {
+      return `Current Interest Rates (APY):
+
+• Savings Accounts: ${interestRates.savings}%
+• Checking Accounts: ${interestRates.checking}%
+• Loan Products: ${interestRates.loan}%
+• Investment Accounts: ${interestRates.investment}%
+
+Rates effective as of today. Retrieved securely through the Banking Security Model.`;
+    }
+
+    if (lower.includes('regulation') || lower.includes('policy') || lower.includes('compliance')) {
+      const list = bankingRegulations.map(r => `• ${r.title} (effective ${r.effectiveDate})\n  ${r.summary}`).join('\n\n');
+      return `Banking Regulations & Policies:\n\n${list}\n\nRetrieved securely through the Banking Security Model.`;
+    }
+
+    // Account lookup — search by holder name
+    const matchedAccounts = bankingDB.filter(acc =>
+      lower.split(/\s+/).some(word => word.length > 3 && acc.holder.toLowerCase().includes(word))
+    );
+    if (lower.includes('account') && matchedAccounts.length > 0) {
+      const list = matchedAccounts.map(acc =>
+        `• ${acc.accountId} — ${acc.holder} | ${acc.accountType} | Branch: ${acc.branch} | Status: ${acc.status}`
+      ).join('\n');
+      return `Matching Accounts (non-sensitive fields only):\n\n${list}\n\nBalance and rate details require authenticated access. Retrieved securely through the Banking Security Model.`;
+    }
+
+    return `Banking System is ready. You can ask about:\n\n• Interest rates (savings, checking, loan, investment)\n• Banking regulations and compliance policies\n• Account lookup by holder name\n\nAll queries are routed through the Banking Security Model.`;
+  }
+
+  if (resource === 'Government') {
+    // Classified/Confidential access attempt
+    if (lower.includes('classified') || lower.includes('confidential') || lower.includes('secret')) {
+      return `Access Denied.\n\nThe records you are querying are classified as Confidential or Classified. Access to these records requires elevated security clearance.\n\nIf you believe you have the required clearance, contact your system administrator.`;
+    }
+
+    if (lower.includes('policy') || lower.includes('retention') || lower.includes('foia') || lower.includes('privacy')) {
+      const publicPolicies = governmentPolicies.filter(p => p.classification === 'Public');
+      const list = publicPolicies.map(p => `• ${p.title}\n  ${p.details}`).join('\n\n');
+      return `Public Government Policies:\n\n${list}\n\nRetrieved securely through the Government Security Model.`;
+    }
+
+    if (lower.includes('department') || lower.includes('record') || lower.includes('report')) {
+      const accessible = governmentDB.filter(r => r.classification === 'Public' || r.classification === 'Internal');
+      const list = accessible.map(r =>
+        `• [${r.classification}] ${r.title} — ${r.department}\n  ${r.description} (Updated: ${r.lastUpdated})`
+      ).join('\n\n');
+      return `Government Records (Public & Internal):\n\n${list}\n\nClassified and Confidential records require elevated clearance. Retrieved securely through the Government Security Model.`;
+    }
+
+    return `Government Database is ready. You can ask about:\n\n• Government policies (data retention, FOIA, privacy)\n• Department records and reports\n• Public and Internal classification records\n\nClassified records require elevated clearance. All queries routed through the Government Security Model.`;
+  }
+
+  if (resource === 'Company') {
+    if (lower.includes('revenue') || lower.includes('quarterly') || lower.includes('financial')) {
+      const publicReports = financialReports.filter(r => r.public);
+      const list = publicReports.map(r =>
+        `• ${r.quarter}: $${(r.revenue / 1000000).toFixed(2)}M revenue | Growth: +${r.growth}% YoY (reported ${r.reportDate})`
+      ).join('\n');
+      return `Quarterly Financial Reports (Public):\n\n${list}\n\nRetrieved securely through the Company Security Model.`;
+    }
+
+    if (lower.includes('employee') && !lower.includes('salary') && !lower.includes('payroll')) {
+      const activeEmployees = companyDB.filter(e => e.status !== 'Terminated');
+      const list = activeEmployees.map(e =>
+        `• ${e.name} — ${e.role}, ${e.department} (${e.status})`
+      ).join('\n');
+      return `Employee Directory (Active & On Leave):\n\n${list}\n\nSalary and compensation data is restricted. Retrieved securely through the Company Security Model.`;
+    }
+
+    if (lower.includes('document') || lower.includes('roadmap') || lower.includes('doc')) {
+      const list = internalDocs.map(d =>
+        `• ${d.title} [${d.sensitivity}] — Last updated: ${d.lastUpdated}`
+      ).join('\n');
+      return `Internal Document Index:\n\n${list}\n\nDocument contents require appropriate access permissions. Retrieved securely through the Company Security Model.`;
+    }
+
+    return `Company Database is ready. You can ask about:\n\n• Quarterly revenue and financial reports\n• Employee directory (names, roles, departments)\n• Internal document index\n\nSalary and payroll data is restricted. All queries routed through the Company Security Model.`;
+  }
+
+  if (resource === 'Research') {
+    if (lower.includes('dataset') || lower.includes('data set')) {
+      const openDatasets = datasets.filter(d => d.access === 'Open');
+      const list = openDatasets.map(d =>
+        `• ${d.name} — ${d.size} | ${d.records.toLocaleString()} records\n  ${d.description}`
+      ).join('\n\n');
+      return `Open Research Datasets:\n\n${list}\n\nRestricted datasets require institutional access. Retrieved securely through the Research Security Model.`;
+    }
+
+    let papers = researchDB.filter(p => p.access === 'Open');
+
+    if (lower.includes('quantum')) {
+      papers = papers.filter(p => p.topic.includes('quantum'));
+    } else if (lower.includes('ai') || lower.includes('safety') || lower.includes('alignment')) {
+      papers = papers.filter(p => p.topic.includes('AI safety'));
+    } else if (lower.includes('crypto') || lower.includes('encryption')) {
+      papers = papers.filter(p => p.topic.includes('cryptography'));
+    } else if (lower.includes('climate') || lower.includes('environment')) {
+      papers = papers.filter(p => p.topic.includes('climate'));
+    } else if (lower.includes('genomic') || lower.includes('crispr') || lower.includes('dna')) {
+      papers = papers.filter(p => p.topic.includes('genomics'));
+    }
+
+    if (papers.length > 0 && (lower.includes('paper') || lower.includes('research') || lower.includes('find') || lower.includes('quantum') || lower.includes('ai') || lower.includes('crypto') || lower.includes('climate') || lower.includes('genomic'))) {
+      const label = papers.length === researchDB.filter(p => p.access === 'Open').length
+        ? 'Open-access research papers'
+        : `papers matching your query`;
+      const list = papers.map((p, i) =>
+        `${i + 1}. "${p.title}" — ${p.authors.join(', ')} (${p.publishedDate.slice(0, 4)})\n   Abstract: ${p.abstract}\n   Citations: ${p.citations} | Access: ${p.access}`
+      ).join('\n\n');
+      return `Found ${papers.length} ${label}:\n\n${list}\n\nRetrieved securely through the Research Security Model.`;
+    }
+
+    return `Research Resources are ready. You can ask about:\n\n• Research papers (quantum, AI safety, cryptography, climate, genomics)\n• Open datasets\n• Specific topics or author searches\n\nRestricted papers require institutional access. All queries routed through the Research Security Model.`;
+  }
+
+  return 'Resource query processed securely through PrismGuard.';
+}
 
 export function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -114,16 +243,10 @@ export function Chat() {
       setMessages((prev) => [...prev, blockedMsg]);
     } else {
       const steps: SecurityCheckStep[] = pipelineSteps.map((s) => ({ name: s.name, status: 'passed' }));
-      const responses: Record<ResourceType, string> = {
-        Banking: 'Based on current banking data, the standard savings interest rate is 4.25% APY. This information was securely retrieved through the Banking Security Model after passing all PrismGuard security checks.',
-        Government: 'The current government policy on data retention requires organizations to retain records for a minimum of 7 years. This was securely retrieved from government databases through the Government Security Model.',
-        Company: 'The latest quarterly revenue report shows a 14.2% year-over-year growth. This data was securely accessed through the Company Security Model after passing all security layers.',
-        Research: 'Recent research on quantum computing shows significant advances in error correction and qubit stability. This was retrieved through the Research Security Model from public datasets.',
-      };
       const responseMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'assistant',
-        content: responses[resourceType],
+        content: queryDatabase(text, resourceType),
         securityCheck: steps,
         resource: resourceType,
       };

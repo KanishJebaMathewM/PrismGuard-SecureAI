@@ -1,0 +1,7 @@
+{
+  "task_id": "task-prismguard-sqlite-backend",
+  "task_description": "Replace @supabase/supabase-js with a complete Node.js/Express/SQLite backend. Remove all Supabase references, create server/ with schema, seed, security pipeline, and REST API, add src/lib/api.ts typed wrappers, proxy /api in vite.config.ts, and update all 9 screens to call live APIs while keeping data.ts as fallback.",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}

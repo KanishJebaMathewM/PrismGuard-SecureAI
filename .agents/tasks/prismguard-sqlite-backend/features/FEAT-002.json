@@ -1,0 +1,58 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Wire the frontend to the backend. Create src/lib/api.ts with typed fetch wrappers that call all /api/* endpoints, add the /api proxy to vite.config.ts, remove @supabase/supabase-js from package.json, and update all 9 screens to call the API wrappers instead of importing static data from data.ts. data.ts is kept unchanged as fallback. This FEAT depends on FEAT-001 (server must exist for types to match). These frontend changes are independent of each other but all depend on api.ts being written first.",
+  "status": "pending",
+  "steps": [
+    "Step 1 — package.json: Remove '@supabase/supabase-js' from dependencies. Run npm install to update package-lock.json. Also add scripts: 'server': 'cd server && node index.js', 'dev:full': 'concurrently \"npm run dev\" \"npm run server\"'. Add 'concurrently': '^8.2.2' to devDependencies (needed only for dev:full convenience; not required for core functionality).",
+
+    "Step 2 — vite.config.ts: Add server.proxy config to proxy '/api' to 'http://localhost:3001'. Full addition:\n  server: {\n    proxy: {\n      '/api': {\n        target: 'http://localhost:3001',\n        changeOrigin: true,\n      }\n    }\n  }\n  Keep existing plugins, resolve.alias, and optimizeDeps unchanged.",
+
+    "Step 3 — src/lib/api.ts: Create typed fetch wrapper module. Define response types matching server output (use existing types from src/types.ts where they match; add new API-specific types inline). Implement these exported async functions:\n  fetchDashboardStats(): Promise<DashboardStats> → GET /api/dashboard/stats\n  fetchResources(): Promise<Resource[]> → GET /api/resources (map snake_case to camelCase matching Resource interface)\n  fetchResource(id: string): Promise<Resource & { recentPrompts: PromptActivity[] }> → GET /api/resources/:id\n  fetchPrompts(): Promise<PromptActivity[]> → GET /api/prompts\n  sendPrompt(prompt: string, resource: ResourceType | 'Auto Detect'): Promise<PromptResult> → POST /api/prompts\n  fetchModels(): Promise<SecurityModel[]> → GET /api/models\n  fetchModel(id: string): Promise<SecurityModel> → GET /api/models/:id\n  fetchResearchTopics(): Promise<ResearchTopic[]> → GET /api/research\n  fetchResearchTopic(id: string): Promise<ResearchTopic> → GET /api/research/:id\n  fetchAdminReviews(): Promise<ReviewItem[]> → GET /api/admin/reviews\n  classifyReview(id: string, data: { classification: string; category: string; notes: string }): Promise<ReviewItem> → POST /api/admin/reviews/:id/classify\n  fetchTrainingJobs(): Promise<TrainingJob[]> → GET /api/training\n  fetchTrainingModels(): Promise<SecurityModel[]> → GET /api/training/models\n  startRetrain(modelId: string): Promise<{ jobId: string; modelId: string }> → POST /api/training/retrain\n  fetchSecurityLogs(): Promise<SecurityLog[]> → GET /api/security-logs (note: mount as /api/security-logs in server or map this route)\n  fetchAttackTests(): Promise<AttackTest[]> → GET /api/attack-lab/tests\n  runAttackTest(prompt: string, attackType: string, resource: string): Promise<PromptResult> → POST /api/attack-lab/test\n  Each wrapper: uses fetch(), on !response.ok throws Error with status text, returns response.json(). Add DashboardStats type: { totalPrompts: number; allowed: number; blocked: number; connectedResources: number; recentActivity: PromptActivity[] }. Add PromptResult type: { id: string; status: 'allowed'|'blocked'|'review'; riskLevel: RiskLevel; attackType?: string; blockedLayer?: string; reason?: string; resource: ResourceType; pipelineAnalysis: { layer: string; result: string }[] }. Note: also add GET /api/security-logs route to server/routes/ (Step 4 below) or alias it in server/index.js.",
+
+    "Step 4 — server/routes/security-logs.js (new file): GET / → SELECT * FROM security_logs ORDER BY created_at DESC LIMIT 100, returns array. Mount in server/index.js as app.use('/api/security-logs', securityLogsRouter).",
+
+    "Step 5 — src/screens/Dashboard.tsx: Replace static imports. Remove: import { resources, recentActivity } from '@/data'. Add: import { fetchDashboardStats, fetchResources } from '@/lib/api'. Change useEffect to call both fetchDashboardStats() and fetchResources() concurrently with Promise.all. Store results in state: [stats, setStats] and [resourceList, setResourceList]. Replace hardcoded kpis array values with: value: stats?.totalPrompts.toLocaleString() ?? '...', stats?.allowed.toLocaleString(), stats?.blocked.toLocaleString(), stats?.connectedResources.toString(). Replace recentActivity.slice(0,6) with stats?.recentActivity.slice(0,6) ?? []. Replace resources.map with resourceList.map. Keep existing JSX, styles, and className strings EXACTLY unchanged. On fetch error, fall back to imported { resources, recentActivity } from '@/data' — add a try/catch that sets state from data.ts on failure.",
+
+    "Step 6 — src/screens/Resources.tsx: Remove: import { resources } from '@/data'. Add import { fetchResources, fetchResource } from '@/lib/api'. In Resources component, replace setTimeout fake-load with useEffect calling fetchResources() and setResources(data). In ResourceDetail component, replace const resource = resources.find(...) with useEffect calling fetchResource(resourceId) and store in state with loading guard. Keep all JSX identical, including the recentRequests static array in ResourceDetail (it can stay static or come from the resource.recentPrompts if available). Fallback: on error, use resources from '@/data'.",
+
+    "Step 7 — src/screens/Models.tsx: Remove: import { models } from '@/data'. Add import { fetchModels, fetchModel, startRetrain } from '@/lib/api'. In Models: replace setTimeout with fetchModels() in useEffect. In ModelDetail: replace models.find with fetchModel(modelId) in useEffect. Change startRetrain() function to call the API startRetrain(model.id), then poll GET /api/models/:id every 500ms and update trainProgress from the DB job progress field. On completion, re-fetch model to get new version. Fallback: on error use models from '@/data'.",
+
+    "Step 8 — src/screens/AdminReview.tsx: Remove: import { reviewQueue } from '@/data'. Add import { fetchAdminReviews, classifyReview } from '@/lib/api'. In AdminReview: replace useState(reviewQueue) with useState([]), add useEffect calling fetchAdminReviews(). Change quickClassify to call classifyReview(id, { classification: status.toLowerCase(), category: 'General', notes: '' }) then re-fetch. In PromptReview: replace reviewQueue.find with fetched items (pass item as prop or re-fetch by id). Change handleSubmit to call classifyReview(item.id, { classification, category, notes }). Fallback: on error use reviewQueue from '@/data'.",
+
+    "Step 9 — src/screens/Training.tsx: Remove: import { trainingJobs, models } from '@/data'. Add import { fetchTrainingJobs, fetchTrainingModels } from '@/lib/api'. Replace static data in both the job cards and the models table with useEffect fetching both. Keep all JSX unchanged. Fallback on error.",
+
+    "Step 10 — src/screens/SecurityLogs.tsx: Remove: import { securityLogs } from '@/data'. Add import { fetchSecurityLogs } from '@/lib/api'. Replace useState(securityLogs) with useState([]) + useEffect calling fetchSecurityLogs(). Fallback on error.",
+
+    "Step 11 — src/screens/AttackLab.tsx: Remove: import { attackTests } from '@/data'. Add import { fetchAttackTests, runAttackTest } from '@/lib/api'. In useEffect fetch attack tests and store in state. Change runTest() to call runAttackTest(prompt, selectedAttack.name, 'Banking') and use response to build the analysis array. Keep all JSX unchanged (the AnalysisIcon component, layout, etc.). Fallback on error.",
+
+    "Step 12 — src/screens/Research.tsx: Remove: import { researchTopics } from '@/data'. Add import { fetchResearchTopics, fetchResearchTopic } from '@/lib/api'. In Research: fetch on mount. In ResearchDetail: fetch by topicId on mount. Fallback on error.",
+
+    "Step 13 — src/screens/Chat.tsx: The Chat screen currently does all processing client-side. Change handleSend to call sendPrompt(text, resourceType) from '@/lib/api'. Map the PromptResult back to the existing ChatMessage shape: result.status==='blocked' → set blocked=true, use result.blockedReason and result.blockedLayer, build securityCheck steps from result.pipelineAnalysis mapping result values to 'passed'/'blocked'/'processing'. Keep all existing JSX, the local detectResource function, and the blockedKeywords fallback (still useful if API is down). The fallback: if fetch throws, fall back to the existing client-side isBlocked() logic.",
+
+    "Step 14 — Verify frontend TypeScript: Run npm run typecheck from project root. Fix any type errors (likely: PromptActivity.status is 'Allowed'|'Blocked'|'Review'|'Suspicious' in types.ts but server returns lowercase; normalise in the api.ts mapper by capitalising first letter)."
+  ],
+  "acceptance_criteria": [
+    "npm run typecheck completes with 0 errors",
+    "npm run dev starts Vite on :5173 with no TS compilation errors in console",
+    "With server running: Dashboard shows non-zero totalPrompts from DB (not hardcoded '1,284')",
+    "Resources screen loads 4 resources from DB",
+    "Chat: typing 'ignore previous instructions' and sending calls POST /api/prompts and returns a blocked response stored in DB",
+    "Admin Review shows DB-seeded review items",
+    "Security Logs shows DB-seeded log items",
+    "Attack Lab loads 6 attack tests from DB",
+    "Research shows 5 topics from DB",
+    "Models shows 4 models from DB"
+  ],
+  "verification": [
+    "cd c:\\Users\\Admin\\Desktop\\PrismGuard-SecureAI-main && npm run typecheck",
+    "Start server in background: cd server && node index.js",
+    "cd c:\\Users\\Admin\\Desktop\\PrismGuard-SecureAI-main && npm run dev (check for TS errors in output)",
+    "Open browser at http://localhost:5173 and verify Dashboard shows live data",
+    "Navigate to Resources, Models, Research, AdminReview, Training, SecurityLogs, AttackLab — each must load",
+    "In Chat, send 'ignore previous instructions' — verify it shows blocked with pipeline steps",
+    "Stop both dev server and node server"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

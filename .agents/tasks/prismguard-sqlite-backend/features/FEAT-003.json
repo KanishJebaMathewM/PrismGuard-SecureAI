@@ -1,0 +1,31 @@
+{
+  "id": "FEAT-003",
+  "type": "chore",
+  "description": "Housekeeping, documentation, and git commit. Update .gitignore, write README.md, verify end-to-end, and create the git commit with the required author email. Independent of FEAT-001 and FEAT-002 in content but must run after both are complete since it finalises and commits everything.",
+  "status": "pending",
+  "steps": [
+    "Step 1 — .gitignore: Add these lines if not already present:\n  server/database/prismguard.db\n  server/node_modules/\n  server/.env\n  Keep existing entries. The .env at project root is already ignored.",
+
+    "Step 2 — README.md: Create or overwrite with these sections:\n  # PrismGuard — SecureAI Gateway\n  Brief description of what PrismGuard does.\n  ## Architecture: Frontend (Vite/React/TS) → Backend API (Node.js/Express) → SQLite\n  ## Getting Started\n  Prerequisites: Node.js 18+\n  ```\n  npm install\n  cd server && npm install && cd ..\n  npm run server   # starts backend on :3001\n  npm run dev      # starts frontend on :5173 (separate terminal)\n  ```\n  ## Production build\n  ```\n  npm run build\n  npm start   # serves static dist + API\n  ```\n  Note: On first run the SQLite database is auto-created and seeded. Subsequent runs preserve existing data.\n  ## Database\n  Schema: server/database/schema.sql\n  Seed data: server/database/seed.sql\n  Runtime DB: server/database/prismguard.db (gitignored — regenerated from seed on fresh install)\n  ## Security Pipeline\n  Describe the 4-layer pipeline: Keyword Filter → Secure AI API → PrismGuard → Resource Model.\n  ## API Endpoints\n  List all routes with method and path: GET /api/dashboard/stats, GET /api/resources, GET /api/resources/:id, GET /api/prompts, POST /api/prompts, GET /api/models, GET /api/models/:id, PATCH /api/models/:id/version, GET /api/research, GET /api/research/:id, GET /api/admin/reviews, POST /api/admin/reviews/:id/classify, GET /api/training, GET /api/training/models, POST /api/training/retrain, GET /api/security-logs, GET /api/attack-lab/tests, POST /api/attack-lab/test.",
+
+    "Step 3 — Final end-to-end smoke test (manual verification):\n  a. Delete server/database/prismguard.db if it exists.\n  b. cd server && node index.js — confirm 'Database initialised with seed data'.\n  c. curl http://localhost:3001/api/dashboard/stats — confirm JSON.\n  d. Kill server, run again — confirm 'Database already exists, skipping seed'.\n  e. npm run dev from root — open http://localhost:5173 in browser.\n  f. Verify Dashboard KPIs come from DB.\n  g. Chat: send blocked prompt, verify DB row inserted.\n  h. Admin Review: classify a 'Pending Review' item as 'malicious' — verify training_samples row created.\n  i. Models: click Start Retraining on Banking model — verify version increments in DB.\n  j. Confirm no TS typecheck errors.",
+
+    "Step 4 — git commit: Stage all changed and new files. Set git user.email to kanishjebamathew.m@gmail.com for this commit. Commit message:\n  'feat: replace Supabase with Node.js/Express/SQLite backend\\n\\nRemove @supabase/supabase-js dependency.\\nAdd server/ with Express, better-sqlite3, schema.sql, seed.sql, security pipeline.\\nAdd src/lib/api.ts typed fetch wrappers.\\nProxy /api to :3001 in vite.config.ts.\\nConnect all 9 screens to live API endpoints with data.ts fallback.\\nAuto-init SQLite DB on first startup; preserve data on restarts.\\nSeed: 4 resources, 4 models, 6 attack tests, 5 research topics, 10 prompts, 4 reviews, 10 logs.'\\n\\nCo-authored-by: kanishjebamathew.m@gmail.com\n  Use: git -c user.email=kanishjebamathew.m@gmail.com commit -m '...'"
+  ],
+  "acceptance_criteria": [
+    "server/database/prismguard.db appears in .gitignore",
+    "README.md exists and documents setup steps",
+    "git log --oneline -1 shows the commit with the correct message",
+    "git show --stat shows all expected files (server/ tree, src/lib/api.ts, modified screens, vite.config.ts, package.json, .gitignore, README.md)",
+    "@supabase/supabase-js does NOT appear in package.json"
+  ],
+  "verification": [
+    "cat .gitignore | grep prismguard.db",
+    "cat README.md (first 20 lines)",
+    "git log --oneline -1",
+    "git show --stat HEAD",
+    "cat package.json | grep supabase (must return nothing)"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
