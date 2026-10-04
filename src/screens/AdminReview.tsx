@@ -29,7 +29,7 @@ interface AdminReviewProps {
 }
 
 export function AdminReview({ onSelectReview, onNavigate }: AdminReviewProps) {
-  const { pendingNotifications, dismissNotification, triggerRetraining, retrainingResource, retrainingDone, liveReviewItems } = useDemoStore();
+  const { pendingNotifications, dismissNotification, triggerRetraining, retrainingResource, retrainingDone, liveReviewItems, addClassifiedSample } = useDemoStore();
 
   const [items, setItems] = useState<ReviewItem[]>(reviewQueue);
   const [filter, setFilter] = useState<'all' | 'pending' | 'classified'>('all');
@@ -50,6 +50,8 @@ export function AdminReview({ onSelectReview, onNavigate }: AdminReviewProps) {
 
     const target = items.find((item) => item.id === id);
     if (target && (status === 'Malicious' || status === 'Safe')) {
+      // Store classified sample for future retraining
+      addClassifiedSample(target.resource, target.prompt, status);
       const payload: ClassifyPayload = {
         prompt_text: target.prompt,
         resource: target.resource,

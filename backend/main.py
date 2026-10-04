@@ -38,6 +38,7 @@ from backend.database import ModelMetadata, Prompt, get_db  # noqa: E402
 from backend.ml_models import RESOURCES, predict, retrain_model  # noqa: E402
 from backend.guard_client import check_prompt as guard_check_prompt  # noqa: E402
 from backend.llm_client import generate_response as llm_generate  # noqa: E402
+from backend.data_store import get_resource_context  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # App + CORS
@@ -78,6 +79,7 @@ class ClassifyRequest(BaseModel):
 class ChatRequest(BaseModel):
     text: str
     resource: str
+    prismguard_enabled: bool = True
 
 
 class SecurityStepResult(BaseModel):
@@ -275,6 +277,7 @@ _MAX_INPUT_LENGTH = int(os.getenv("MAX_INPUT_LENGTH", "4000"))
 async def chat(request: ChatRequest, db: Session = Depends(get_db)):
     text = request.text
     resource = _normalise_resource(request.resource)
+    prismguard_enabled = request.prismguard_enabled
     lower = text.lower()
 
     steps: list[SecurityStepResult] = []
@@ -296,6 +299,45 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
         )
 
     # ------------------------------------------------------------------
+    # PrismGuard OFF (Bypass Mode)
+    # When PrismGuard is turned off, the prompt does NOT go through
+    # PrismGuard security filtering. All layers are marked passed/bypassed,
+    # PrismGuard is marked as unavailable/disabled, and the response is provided
+    # directly from the resource model without security restrictions.
+    # ------------------------------------------------------------------
+    if not prismguard_enabled:
+        steps.append(SecurityStepResult(name="Keyword Filter", status="passed"))
+        steps.append(SecurityStepResult(name="Secure AI API", status="passed"))
+        steps.append(SecurityStepResult(name="PrismGuard", status="unavailable"))
+        steps.append(SecurityStepResult(name="Resource Model", status="passed"))
+
+        context = get_resource_context(resource)
+        try:
+            response_text = await llm_generate(
+                text, resource, context=context, prismguard_enabled=False
+            )
+        except Exception as exc:
+            logging.warning("LLM generation error with guard off: %s", exc)
+            from backend.data_store import query_fallback
+            response_text = query_fallback(text, resource, prismguard_enabled=False)
+
+        # Audit log for unmonitored / bypassed access
+        db.add(Prompt(text=text, resource=resource, label=0, risk="Low", source="chat-bypassed"))
+        db.commit()
+
+        return ChatResponse(
+            response=response_text,
+            blocked=False,
+            blocked_reason=None,
+            blocked_layer=None,
+            resource=resource,
+            security_steps=steps,
+            sent_to_review=False,
+            confidence=None,
+            guard_bypassed=True,
+        )
+
+    # ------------------------------------------------------------------
     # Step 1 — Keyword Filter
     # ------------------------------------------------------------------
     if any(kw in lower for kw in _KEYWORD_BLOCKLIST):
@@ -303,20 +345,21 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
         blocked = True
         blocked_reason = "Blocked keyword detected in prompt."
         blocked_layer = "Keyword Filter"
-        db.add(Prompt(text=text, resource=resource, label=1, risk="High", source="chat"))
+        db.add(Prompt(text=text, resource=resource, label=1, risk="High", source="chat-review"))
         db.commit()
         return ChatResponse(
             response=(
-                "This prompt was blocked by PrismGuard.\n\n"
+                "🛡️ This prompt was blocked by PrismGuard.\n\n"
                 "Reason: Blocked keyword detected in prompt.\n"
-                "Blocked at: Keyword Filter"
+                "Blocked at: Keyword Filter\n\n"
+                "Incident has been logged and sent to Admin Review."
             ),
             blocked=True,
             blocked_reason=blocked_reason,
             blocked_layer=blocked_layer,
             resource=resource,
             security_steps=steps,
-            sent_to_review=False,
+            sent_to_review=True,
             confidence=None,
             guard_bypassed=False,
         )
@@ -333,23 +376,25 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
             blocked_reason = guard_result.reason or "Blocked by Secure AI Guard."
             blocked_layer = "Secure AI API Layer"
             confidence = guard_result.confidence or None
-            db.add(Prompt(text=text, resource=resource, label=1, risk="High", source="chat"))
+            db.add(Prompt(text=text, resource=resource, label=1, risk="Critical", source="chat-review"))
             db.commit()
             return ChatResponse(
                 response=(
-                    f"This prompt was blocked by PrismGuard.\n\n"
+                    f"🛡️ This prompt was blocked by PrismGuard.\n\n"
                     f"Reason: {blocked_reason}\n"
-                    f"Blocked at: {blocked_layer}"
+                    f"Blocked at: {blocked_layer}\n\n"
+                    "Incident has been logged and sent to Admin Review."
                 ),
                 blocked=True,
                 blocked_reason=blocked_reason,
                 blocked_layer=blocked_layer,
                 resource=resource,
                 security_steps=steps,
-                sent_to_review=False,
+                sent_to_review=True,
                 confidence=confidence,
                 guard_bypassed=False,
             )
+
         elif guard_result.unavailable:
             logging.warning(
                 "guard_unavailable: SecureGuard API unreachable for resource=%s; "
@@ -414,14 +459,15 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
     # ------------------------------------------------------------------
     # Step 5 — LLM Response
     # ------------------------------------------------------------------
+    context = get_resource_context(resource)
     try:
-        response_text = await llm_generate(text, resource)
+        response_text = await llm_generate(
+            text, resource, context=context, prismguard_enabled=True
+        )
     except Exception as exc:
         logging.warning("LLM unavailable: %s", exc)
-        response_text = (
-            f"I'm currently unable to process your request for {resource} data. "
-            "Please try again shortly."
-        )
+        from backend.data_store import query_fallback
+        response_text = query_fallback(text, resource, prismguard_enabled=True)
 
     # ------------------------------------------------------------------
     # Step 6 — Audit log

@@ -25,6 +25,9 @@ interface DemoCtx {
   triggerRetraining: (resource: string) => void;
   retrainingDone: boolean;
   clearRetraining: () => void;
+  // New fields for storing classified samples
+  addClassifiedSample: (resource: string, prompt: string, classification: string) => void;
+  classifiedSamples: Record<string, { prompt: string; classification: string }[]>;
 }
 
 const DemoContext = createContext<DemoCtx | null>(null);
@@ -35,6 +38,15 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const [liveReviewItems, setLiveReviewItems] = useState<ReviewItem[]>([]);
   const [retrainingResource, setRetrainingResource] = useState<string | null>(null);
   const [retrainingDone, setRetrainingDone] = useState(false);
+  // Store classified prompts per resource for retraining
+  const [classifiedSamples, setClassifiedSamples] = useState<Record<string, { prompt: string; classification: string }[]>>({});
+
+  function addClassifiedSample(resource: string, prompt: string, classification: string) {
+    setClassifiedSamples((prev) => {
+      const existing = prev[resource] ?? [];
+      return { ...prev, [resource]: [...existing, { prompt, classification }] };
+    });
+  }
 
   function addNotification(n: DemoNotification, item: ReviewItem) {
     setPendingNotifications((prev) => [n, ...prev]);
@@ -82,6 +94,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         triggerRetraining,
         retrainingDone,
         clearRetraining,
+        addClassifiedSample,
+        classifiedSamples,
       }}
     >
       {children}

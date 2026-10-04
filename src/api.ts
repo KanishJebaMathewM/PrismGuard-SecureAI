@@ -126,9 +126,9 @@ export interface ChatResponse {
   guard_bypassed: boolean;
 }
 
-export const chatWithPrismGuard = (text: string, resource: string) =>
+export const chatWithPrismGuard = (text: string, resource: string, prismguard_enabled: boolean = true) =>
   request<ChatResponse>('/chat', {
     method: 'POST',
-    body: JSON.stringify({ text, resource }),
+    body: JSON.stringify({ text, resource, prismguard_enabled }),
   });
 
