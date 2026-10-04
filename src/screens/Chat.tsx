@@ -12,6 +12,11 @@ import {
   ChevronDown,
   Lock,
   AlertTriangle,
+  WifiOff,
+  Landmark,
+  Building2,
+  FlaskConical,
+  ScrollText,
 } from 'lucide-react';
 
 import type { ChatMessage, ResourceType, SecurityCheckStep } from '@/types';
@@ -34,10 +39,70 @@ const resourceNames: Record<string, string> = {
 
 
 const quickPrompts = [
-  { label: 'Get banking insights', text: 'What is the current interest rate for savings accounts?', resource: 'Banking' as ResourceType },
-  { label: 'Check government policies', text: 'Show current government policy on data retention.', resource: 'Government' as ResourceType },
-  { label: 'Search company resources', text: 'Find the latest quarterly revenue report.', resource: 'Company' as ResourceType },
-  { label: 'Research public data', text: 'Find recent papers on quantum computing.', resource: 'Research' as ResourceType },
+  // Banking — grounded in bankingDB / interestRates / bankingRegulations
+  {
+    label: 'Savings interest rate',
+    text: 'What is the current savings account interest rate and how does it compare to our investment account rate?',
+    resource: 'Banking' as ResourceType,
+  },
+  {
+    label: 'Account ACC-004 details',
+    text: 'Show me the details and performance of investment account ACC-004 held by David Chen.',
+    resource: 'Banking' as ResourceType,
+  },
+  {
+    label: 'AML compliance rules',
+    text: 'What are our AML compliance requirements and the transaction thresholds that trigger a report?',
+    resource: 'Banking' as ResourceType,
+  },
+  // Government — grounded in governmentDB / governmentPolicies
+  {
+    label: 'Budget summary 2026',
+    text: 'Give me a summary of the Annual Budget Summary 2026 from the Department of Finance (GOV-001).',
+    resource: 'Government' as ResourceType,
+  },
+  {
+    label: 'FOIA request process',
+    text: 'How do I submit a FOIA request and what is the fulfilment timeline for public-classified records?',
+    resource: 'Government' as ResourceType,
+  },
+  {
+    label: 'Cybersecurity zero-trust deadline',
+    text: 'What is the federal deadline for zero-trust architecture adoption under the Cybersecurity Executive Order?',
+    resource: 'Government' as ResourceType,
+  },
+  // Company — grounded in companyDB / financialReports / internalDocs
+  {
+    label: 'Q3 2026 revenue growth',
+    text: 'What was our revenue and growth rate in Q3 2026 compared to Q2 2026?',
+    resource: 'Company' as ResourceType,
+  },
+  {
+    label: 'Engineering headcount',
+    text: 'List all active engineers in the Engineering department and their roles.',
+    resource: 'Company' as ResourceType,
+  },
+  {
+    label: 'Product roadmap doc',
+    text: 'When was the Product Roadmap 2026–2027 document last updated and what is its sensitivity level?',
+    resource: 'Company' as ResourceType,
+  },
+  // Research — grounded in researchDB / datasets
+  {
+    label: 'Top AI safety papers',
+    text: 'What are the most-cited AI safety papers in our research database and what do they cover?',
+    resource: 'Research' as ResourceType,
+  },
+  {
+    label: 'Quantum networking research',
+    text: 'Summarise the latest research on scalable quantum networking protocols (PAP-007).',
+    resource: 'Research' as ResourceType,
+  },
+  {
+    label: 'Open climate datasets',
+    text: 'What open-access climate datasets are available and how large is the Climate Observations 2024 dataset?',
+    resource: 'Research' as ResourceType,
+  },
 ];
 
 
@@ -170,20 +235,7 @@ export function Chat() {
 
       {/* Quick prompts */}
       {messages.length <= 1 && !processing && (
-        <div className="border-t border-ink-100 bg-white px-4 py-3 lg:px-6">
-          <div className="mx-auto flex max-w-4xl flex-wrap gap-2">
-            {quickPrompts.map((qp) => (
-              <button
-                key={qp.label}
-                onClick={() => handleSend(qp.text, qp.resource)}
-                className="flex items-center gap-2 rounded-lg border border-ink-100 bg-white px-3 py-2 text-xs font-medium text-ink-500 transition-all hover:border-peacock-200 hover:bg-peacock-50 hover:text-peacock-600"
-              >
-                <Sparkles className="h-3.5 w-3.5 text-peacock-400" />
-                {qp.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <QuickPromptsPanel onSend={handleSend} />
       )}
 
       {/* Input */}
@@ -274,10 +326,14 @@ function SecurityCheckVisualization({ steps, blocked, resource }: { steps: Secur
             <div className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium ${
               step.status === 'passed' ? 'bg-success-50 text-success-600' :
               step.status === 'blocked' ? 'bg-danger-50 text-danger-600' :
+              step.status === 'flagged' ? 'bg-warning-50 text-warning-600' :
+              step.status === 'unavailable' ? 'bg-ink-100 text-ink-400' :
               'bg-ink-100 text-ink-400'
             }`}>
               {step.status === 'passed' ? <CheckCircle2 className="h-3 w-3" /> :
                step.status === 'blocked' ? <XCircle className="h-3 w-3" /> :
+               step.status === 'flagged' ? <AlertTriangle className="h-3 w-3" /> :
+               step.status === 'unavailable' ? <WifiOff className="h-3 w-3" /> :
                <div className="h-3 w-3 animate-pulse-soft rounded-full bg-current" />}
               {step.name}
             </div>
@@ -318,6 +374,60 @@ function ProcessingIndicator() {
             <div className="h-2 w-2 animate-pulse-soft rounded-full bg-peacock-400" style={{ animationDelay: '400ms' }} />
           </div>
           <span className="text-xs text-ink-400">PrismGuard is analyzing your prompt...</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Quick Prompts Panel — tabbed by resource, grounded in actual DB records
+// ---------------------------------------------------------------------------
+
+const resourceTabs: { key: ResourceType; label: string; Icon: React.ElementType; color: string }[] = [
+  { key: 'Banking',    label: 'Banking',    Icon: Landmark,     color: 'text-info-600'    },
+  { key: 'Government', label: 'Government', Icon: ScrollText,   color: 'text-warning-600' },
+  { key: 'Company',    label: 'Company',    Icon: Building2,    color: 'text-success-600' },
+  { key: 'Research',   label: 'Research',   Icon: FlaskConical, color: 'text-peacock-600' },
+];
+
+function QuickPromptsPanel({ onSend }: { onSend: (text: string, resource: ResourceType) => void }) {
+  const [activeTab, setActiveTab] = useState<ResourceType>('Banking');
+  const tabPrompts = quickPrompts.filter((qp) => qp.resource === activeTab);
+
+  return (
+    <div className="border-t border-ink-100 bg-white px-4 pb-3 pt-2 lg:px-6">
+      <div className="mx-auto max-w-4xl">
+        {/* Tab strip */}
+        <div className="mb-2 flex gap-1">
+          {resourceTabs.map(({ key, label, Icon, color }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeTab === key
+                  ? 'bg-peacock-50 text-peacock-700 ring-1 ring-peacock-200'
+                  : 'text-ink-400 hover:bg-ink-50 hover:text-ink-600'
+              }`}
+            >
+              <Icon className={`h-3.5 w-3.5 ${activeTab === key ? 'text-peacock-500' : color}`} />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Prompt chips */}
+        <div className="flex flex-wrap gap-2">
+          {tabPrompts.map((qp) => (
+            <button
+              key={qp.label}
+              onClick={() => onSend(qp.text, qp.resource)}
+              className="flex items-center gap-2 rounded-lg border border-ink-100 bg-white px-3 py-2 text-left text-xs font-medium text-ink-500 transition-all hover:border-peacock-200 hover:bg-peacock-50 hover:text-peacock-600"
+            >
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-peacock-400" />
+              {qp.label}
+            </button>
+          ))}
         </div>
       </div>
     </div>
