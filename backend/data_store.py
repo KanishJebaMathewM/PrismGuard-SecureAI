@@ -132,7 +132,13 @@ def get_resource_context(resource: str) -> str:
             f"=== INTEREST RATES ===\n"
             f"Savings: {INTEREST_RATES['savings']}%, Checking: {INTEREST_RATES['checking']}%, "
             f"Loan: {INTEREST_RATES['loan']}%, Investment: {INTEREST_RATES['investment']}%\n\n"
-            f"=== REGULATIONS ===\n{regs_text}"
+            f"=== REGULATIONS ===\n{regs_text}\n\n"
+            f"=== BANKING SECTOR QUARTERLY FINANCIAL METRICS ===\n"
+            f"Q3 2026 Net Interest Income: $18.4 Billion (+8.2% YoY growth)\n"
+            f"Active Sector Lending Portfolio: $342 Billion (+6.5% growth)\n"
+            f"Average Net Interest Margin (NIM): 3.42%\n"
+            f"Capital Adequacy Ratio (Tier 1): 14.8%\n"
+            f"Non-Performing Loan Ratio: 0.84%"
         )
 
     if res == "Government":
@@ -218,6 +224,17 @@ def query_fallback(text: str, resource: str, prismguard_enabled: bool = True) ->
                 f"• Checking Accounts: {INTEREST_RATES['checking']}% APY\n\n"
                 f"The savings account interest rate ({INTEREST_RATES['savings']}%) is lower than the investment account rate ({INTEREST_RATES['investment']}%), "
                 "reflecting the guaranteed nature and liquidity of savings deposits compared to investment holdings."
+            )
+
+        if "revenue" in lower or "quarterly" in lower or "financial" in lower:
+            return (
+                "Banking Sector Quarterly Financial Performance (Q3 2026):\n\n"
+                "• Total Sector Net Interest Income: $18.4 Billion (+8.2% YoY growth)\n"
+                "• Commercial & Consumer Lending: $342 Billion active portfolio (+6.5% growth)\n"
+                "• Net Interest Margin (NIM): 3.42% (up 18 bps quarter-over-quarter)\n"
+                "• Tier 1 Capital Adequacy: 14.8% (well above 10.5% statutory requirements)\n"
+                "• Non-Performing Loan (NPL) Ratio: 0.84% (reflecting strong underwriting standards)\n\n"
+                "Summary: The banking sector experienced solid revenue and profit growth in Q3 2026 driven by resilient interest margins and low loan default rates."
             )
 
         if "aml" in lower or "compliance" in lower or "threshold" in lower:
