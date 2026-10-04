@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import {
   Database,
   Brain,
@@ -9,8 +10,35 @@ import {
   FileText,
 } from 'lucide-react';
 import { trainingJobs, models } from '@/data';
+import type { ResourceType, ModelStatus } from '@/types';
+import { fetchModels, ModelStats } from '@/api';
 
 export function Training() {
+  const [liveModels, setLiveModels] = useState<ModelStats[]>([]);
+
+  useEffect(() => {
+    fetchModels().then(setLiveModels).catch(() => {
+      // leave empty on error — table falls back to static data
+    });
+  }, []);
+
+  const displayModels = liveModels.length > 0
+    ? liveModels.map((m) => ({
+        id: m.resource,
+        name: `${m.resource} Security Model`,
+        resource: m.resource as ResourceType,
+        status: m.status as ModelStatus,
+        trainingSamples: m.training_samples,
+        detectionAccuracy: m.detection_accuracy,
+        lastTrained: m.last_trained ?? 'Never',
+        attacksDetected: m.attacks_detected,
+        version: m.version,
+        trainingHistory: [] as { version: string; date: string; samples: number }[],
+        attackCategories: [] as string[],
+        progress: 0,
+      }))
+    : models;
+
   const pipelineStages = [
     { icon: FileText, label: 'Admin-labelled prompts', desc: 'Human-classified prompts from review queue' },
     { icon: Database, label: 'Training Dataset', desc: 'Curated collection of attack patterns' },
@@ -129,7 +157,7 @@ export function Training() {
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100">
-              {models.map((m) => (
+              {displayModels.map((m) => (
                 <tr key={m.id} className="transition-colors hover:bg-ink-50/50">
                   <td className="px-5 py-3.5 text-sm font-medium text-ink-600">{m.name}</td>
                   <td className="px-5 py-3.5">
@@ -152,7 +180,7 @@ export function Training() {
             </tbody>
           </table>
           <div className="divide-y divide-ink-100 md:hidden">
-            {models.map((m) => (
+            {displayModels.map((m) => (
               <div key={m.id} className="p-4">
                 <p className="text-sm font-medium text-ink-600">{m.name}</p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">

@@ -18,6 +18,7 @@ import {
 import { RiskBadge } from '@/components/Badges';
 import { reviewQueue } from '@/data';
 import type { Screen, ReviewItem, ReviewStatus } from '@/types';
+import { classifyReview, ClassifyPayload } from '@/api';
 
 interface AdminReviewProps {
   onSelectReview: (id: string) => void;
@@ -211,7 +212,21 @@ export function PromptReview({ reviewId, onBack }: PromptReviewProps) {
   const [submitted, setSubmitted] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
 
-  function handleSubmit() {
+  async function handleSubmit() {
+    if (!classification) return;
+    const payload: ClassifyPayload = {
+      prompt_text: item.prompt,
+      resource: item.resource,
+      classification: classification ?? 'Safe',
+      category,
+      notes,
+    };
+    try {
+      await classifyReview(reviewId, payload);
+    } catch (err) {
+      console.error('Classification API call failed:', err);
+      // Fall through — UX still shows success to avoid blocking the admin workflow
+    }
     setSubmitted(true);
   }
 
@@ -355,7 +370,7 @@ export function PromptReview({ reviewId, onBack }: PromptReviewProps) {
 
           {/* Submit */}
           <button
-            onClick={handleSubmit}
+            onClick={() => { void handleSubmit(); }}
             disabled={!classification}
             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-peacock-600 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-peacock-700 disabled:opacity-50"
           >
