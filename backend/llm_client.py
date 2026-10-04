@@ -17,11 +17,6 @@ load_dotenv(_PROJECT_ROOT / ".env")
 
 logger = logging.getLogger(__name__)
 
-_API_KEY = os.getenv("LLM_API_KEY", "")
-_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
-_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
-_TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "20.0"))
-
 _RESOURCE_CONTEXT: dict[str, str] = {
     "Banking": "banking and financial data, account management, loan products, and regulatory compliance",
     "Government": "government records, public policies, departmental data, and civic systems",
@@ -38,16 +33,19 @@ _client: AsyncOpenAI | None = None
 def _get_client() -> AsyncOpenAI | None:
     """Return the shared AsyncOpenAI client, creating it on first call.
 
-    Re-reads LLM_API_KEY at call time so that any entry point that imports this
-    module before load_dotenv runs will still get a valid client once env is set.
+    All four config values are read here (not at module scope) so that any
+    entry point that imports this module before load_dotenv runs will still
+    get the correct URL, model, and timeout once the env is populated.
     """
     global _client
     if _client is not None:
         return _client
-    api_key = os.getenv("LLM_API_KEY", _API_KEY)
+    api_key = os.getenv("LLM_API_KEY", "")
     if not api_key:
         return None
-    _client = AsyncOpenAI(api_key=api_key, base_url=_BASE_URL, timeout=_TIMEOUT)
+    base_url = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
+    timeout = float(os.getenv("LLM_TIMEOUT_SECONDS", "20.0"))
+    _client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
     return _client
 
 
@@ -91,7 +89,7 @@ async def generate_response(prompt: str, resource: str, context: str = "") -> st
 
     try:
         response = await client.chat.completions.create(
-            model=_MODEL,
+            model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
             messages=messages,
             max_tokens=1024,
         )

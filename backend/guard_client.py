@@ -5,6 +5,7 @@ Reads SECURE_GUARD_API_URL (or GUARD_URL) and GUARD_TOKEN from .env.
 Fails open: returns GuardResult(blocked=False) if the API is unreachable.
 """
 
+import asyncio
 import logging
 import os
 from dataclasses import dataclass, field
@@ -120,11 +121,28 @@ async def check_prompt(text: str, resource: str) -> GuardResult:
                 resp = await client.post(url, json=payload, headers=headers)
 
                 if resp.status_code == 403:
-                    return GuardResult(
-                        blocked=True,
-                        reason="Blocked by SecureAI Guard (403 Forbidden)",
-                        confidence=1.0,
+                    # 403 is ambiguous: it can mean "this content is blocked" (intentional
+                    # Guard decision) OR "your token is invalid/expired" (auth failure).
+                    # Without a reliable body field to distinguish them, treat 403 as
+                    # unavailable (fail-open) so a misconfigured token doesn't hard-block
+                    # every user prompt.
+                    body = {}
+                    try:
+                        body = resp.json() if resp.content else {}
+                    except Exception:
+                        pass
+                    reason_hint = body.get("error_type") or body.get("code") or ""
+                    logger.warning(
+                        "guard_unavailable: 403 from Guard API — likely auth failure "
+                        "(event=guard_unavailable url=%s hint=%s)",
+                        url, reason_hint,
                     )
+                    return GuardResult(
+                        blocked=False,
+                        unavailable=True,
+                        reason="Guard returned 403 (auth failure or misconfigured token)",
+                    )
+
                 if 200 <= resp.status_code < 300:
                     raw = resp.json() if resp.content else {}
                     return _parse_guard_response(raw)
@@ -138,7 +156,16 @@ async def check_prompt(text: str, resource: str) -> GuardResult:
                     "(event=guard_degraded url=%s): %s",
                     resp.status_code, attempt + 1, url, resp.text[:200],
                 )
+                # 429 means we're rate-limited — retrying immediately makes it worse.
+                # Fail open straight away rather than burning more quota.
+                if resp.status_code == 429:
+                    return GuardResult(
+                        blocked=False,
+                        unavailable=True,
+                        reason="Guard rate-limited (HTTP 429)",
+                    )
                 if attempt < _MAX_RETRY:
+                    await asyncio.sleep(0.5 * (attempt + 1))  # exponential back-off: 0.5s, 1.0s
                     continue
                 return GuardResult(
                     blocked=False,
@@ -153,6 +180,7 @@ async def check_prompt(text: str, resource: str) -> GuardResult:
             )
             if attempt == _MAX_RETRY:
                 return GuardResult(blocked=False, unavailable=True, reason=str(exc))
+            await asyncio.sleep(0.5 * (attempt + 1))  # back-off before retry
         except Exception as exc:
             logger.warning(
                 "guard_unavailable: unexpected error (event=guard_unavailable url=%s): %s",

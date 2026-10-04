@@ -3,51 +3,31 @@
   "findings": [
     {
       "id": 1,
-      "label": "Fail-open with no observability",
-      "detail": "guard_result.unavailable is appended as a step status but never counted, alerted, or circuit-broken. A guard outage is invisible to operators and silently allows all prompts through to the LLM.",
-      "severity": "high",
+      "label": "Credentials committed to git",
+      "detail": ".env contains a live OpenAI key (sk-proj-...) and a SecureAI Guard token (sai_1d647983...). Remove from repo immediately, rotate both keys, add .env to .gitignore, and replace with .env.example containing placeholder values.",
       "confidence": "confirmed",
-      "file": "backend/main.py"
+      "severity": "blocking"
     },
     {
       "id": 2,
-      "label": "4xx endpoint cached as working",
-      "detail": "_discovered_endpoint is set on any status_code < 500, including 401/404. A misconfigured token will permanently cache a rejecting endpoint, preventing discovery of a valid one.",
-      "severity": "high",
+      "label": "403 treated as block, not auth failure",
+      "detail": "guard_client.py returns GuardResult(blocked=True, confidence=1.0) on any 403 response. An expired or misconfigured token also produces a 403, causing every prompt to be silently hard-blocked by the Guard layer rather than failing open with unavailable=True.",
       "confidence": "confirmed",
-      "file": "backend/guard_client.py"
+      "severity": "blocking"
     },
     {
       "id": 3,
-      "label": "Flagged-range prompts mislabelled safe",
-      "detail": "When ML confidence is 0.5–0.7 (sent_to_review=True), step 6 writes label=0 (safe) to the Prompt table. Retraining pipelines consuming these rows will be trained on mislabelled data.",
-      "severity": "high",
+      "label": "Lazy LLM client only partially lazy",
+      "detail": "_get_client() re-reads LLM_API_KEY at first call, but _BASE_URL, _MODEL, and _TIMEOUT are captured at module load time. Read all four config values inside _get_client() or document the process-restart requirement.",
       "confidence": "confirmed",
-      "file": "backend/main.py"
+      "severity": "minor"
     },
     {
       "id": 4,
-      "label": "context parameter is dead code",
-      "detail": "main.py calls llm_generate(text, resource) with no context argument. The f-string branch that appends context to the user message never executes in production.",
-      "severity": "low",
-      "confidence": "confirmed",
-      "file": "backend/llm_client.py"
-    },
-    {
-      "id": 5,
-      "label": "salary/payroll keyword asymmetry",
-      "detail": "Both keywords are hard-blocked at step 1 on the backend, but the frontend queryDatabase guard clause for Company excludes them from the directory path, implying they were expected to reach the DB layer. Confirm the hard-block is intentional.",
-      "severity": "low",
-      "confidence": "confirmed",
-      "files": ["backend/main.py", "src/screens/Chat.tsx"]
-    },
-    {
-      "id": 6,
-      "label": "flagged/unavailable rendered as processing",
-      "detail": "SecurityCheckVisualization maps 'flagged' and 'unavailable' to the same grey/pulse style as 'processing', so users cannot distinguish a suspicious-but-allowed prompt from one still in flight.",
-      "severity": "low",
-      "confidence": "confirmed",
-      "file": "src/screens/Chat.tsx"
+      "label": "No back-off on Guard retry",
+      "detail": "The retry loop in guard_client.py continues immediately after 4xx/5xx responses with no sleep or exponential back-off. Add asyncio.sleep between attempts or skip retrying on 429.",
+      "confidence": "likely",
+      "severity": "minor"
     }
   ],
   "reviewDoc": "c:\\Users\\Admin\\Desktop\\PrismGuard-SecureAI-main\\.agents\\tasks\\review.md"
