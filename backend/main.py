@@ -255,18 +255,27 @@ def classify_review(
     db.refresh(prompt_row)
 
     retrain_result = retrain_model(resource, db)
+    retrained = bool(retrain_result.get("success", False))
+
+    if retrained:
+        message = (
+            f"Prompt classified as {request.classification} and stored. "
+            f"Model retrained to {retrain_result.get('version')} "
+            f"with {retrain_result.get('samples')} samples."
+        )
+    else:
+        message = (
+            f"Prompt classified as {request.classification} and stored. "
+            f"Retrain skipped: {retrain_result.get('reason', 'unknown reason')}."
+        )
 
     return {
         "stored_id": prompt_row.id,
         "resource": resource,
-        "retrained": True,
-        "new_version": retrain_result.get("version"),
+        "retrained": retrained,
+        "new_version": retrain_result.get("version") if retrained else None,
         "accuracy": retrain_result.get("accuracy"),
-        "message": (
-            f"Prompt classified as {request.classification} and stored. "
-            f"Model retrained to {retrain_result.get('version')} "
-            f"with {retrain_result.get('samples')} samples."
-        ),
+        "message": message,
     }
 
 
@@ -294,10 +303,10 @@ def get_stats(db: Session = Depends(get_db)):
         breakdown[resource] = {"total": r_total, "malicious": r_malicious, "safe": r_total - r_malicious}
 
     return {
-        "total": total,
+        "total_prompts": total,
         "malicious": malicious,
         "safe": safe,
-        "breakdown": breakdown,
+        "by_resource": breakdown,
     }
 
 

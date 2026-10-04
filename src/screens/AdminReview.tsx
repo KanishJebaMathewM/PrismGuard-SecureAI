@@ -38,7 +38,23 @@ export function AdminReview({ onSelectReview, onNavigate }: AdminReviewProps) {
   const pendingCount = items.filter((i) => i.status === 'Pending Review').length;
 
   function quickClassify(id: string, status: ReviewStatus) {
+    // Update local state immediately so the UI responds without waiting for the API
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, status } : item)));
+
+    // Also persist to the backend so DB is updated and model is retrained
+    const target = items.find((item) => item.id === id);
+    if (target && (status === 'Malicious' || status === 'Safe')) {
+      const payload: ClassifyPayload = {
+        prompt_text: target.prompt,
+        resource: target.resource,
+        classification: status,
+        category: '',
+        notes: 'Quick-classified from review list',
+      };
+      classifyReview(id, payload).catch((err: unknown) => {
+        console.error('Quick-classify API call failed:', err);
+      });
+    }
   }
 
   const statusStyles: Record<ReviewStatus, string> = {
