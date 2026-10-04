@@ -10,6 +10,7 @@ import { AdminReview, PromptReview } from '@/screens/AdminReview';
 import { Training } from '@/screens/Training';
 import { SecurityLogs } from '@/screens/SecurityLogs';
 import { Settings } from '@/screens/Settings';
+import { DemoProvider } from '@/demoStore';
 import type { Screen } from '@/types';
 
 function App() {
@@ -49,6 +50,7 @@ function App() {
   const isAdminScreen = ['admin-review', 'prompt-review', 'training', 'logs', 'settings'].includes(screen);
 
   return (
+    <DemoProvider>
     <div className="min-h-screen bg-ink-50">
       <Navbar current={screen} onNavigate={navigate} />
       <main className="animate-fade-in" key={screen}>
@@ -68,6 +70,7 @@ function App() {
         {screen === 'settings' && <Settings />}
       </main>
     </div>
+    </DemoProvider>
   );
 }
 

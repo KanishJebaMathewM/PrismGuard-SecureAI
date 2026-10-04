@@ -9,16 +9,19 @@ import {
   Eye,
   FileText,
   Tag,
-  StickyNote,
   Send,
   ChevronDown,
   Database,
   Layers,
+  BellRing,
+  X,
+  Loader2,
 } from 'lucide-react';
 import { RiskBadge } from '@/components/Badges';
 import { reviewQueue } from '@/data';
 import type { Screen, ReviewItem, ReviewStatus } from '@/types';
 import { classifyReview, ClassifyPayload } from '@/api';
+import { useDemoStore } from '@/demoStore';
 
 interface AdminReviewProps {
   onSelectReview: (id: string) => void;
@@ -26,22 +29,25 @@ interface AdminReviewProps {
 }
 
 export function AdminReview({ onSelectReview, onNavigate }: AdminReviewProps) {
+  const { pendingNotifications, dismissNotification, triggerRetraining, retrainingResource, retrainingDone, liveReviewItems } = useDemoStore();
+
   const [items, setItems] = useState<ReviewItem[]>(reviewQueue);
   const [filter, setFilter] = useState<'all' | 'pending' | 'classified'>('all');
 
-  const filtered = items.filter((item) => {
+  // Merge live demo items (from the store) with static queue; live items come first
+  const allItems = [...liveReviewItems.filter((li) => !items.find((i) => i.id === li.id)), ...items];
+
+  const filtered = allItems.filter((item) => {
     if (filter === 'pending') return item.status === 'Pending Review';
     if (filter === 'classified') return item.status !== 'Pending Review';
     return true;
   });
 
-  const pendingCount = items.filter((i) => i.status === 'Pending Review').length;
+  const pendingCount = allItems.filter((i) => i.status === 'Pending Review').length;
 
   function quickClassify(id: string, status: ReviewStatus) {
-    // Update local state immediately so the UI responds without waiting for the API
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, status } : item)));
 
-    // Also persist to the backend so DB is updated and model is retrained
     const target = items.find((item) => item.id === id);
     if (target && (status === 'Malicious' || status === 'Safe')) {
       const payload: ClassifyPayload = {
@@ -57,6 +63,12 @@ export function AdminReview({ onSelectReview, onNavigate }: AdminReviewProps) {
     }
   }
 
+  // Demo: reject a live notification and trigger retraining
+  function handleRejectNotification(notifId: string, resource: string) {
+    dismissNotification(notifId);
+    triggerRetraining(resource);
+  }
+
   const statusStyles: Record<ReviewStatus, string> = {
     'Pending Review': 'bg-warning-50 text-warning-600 border-warning-100',
     'Malicious': 'bg-danger-50 text-danger-600 border-danger-100',
@@ -67,6 +79,46 @@ export function AdminReview({ onSelectReview, onNavigate }: AdminReviewProps) {
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-8 lg:px-6">
+
+      {/* ── Retraining Progress Banner ──────────────────────────────── */}
+      {retrainingResource && (
+        <div className={`mb-6 animate-slide-down flex items-center gap-4 rounded-2xl border-2 px-5 py-4 shadow-card ${
+          retrainingDone
+            ? 'border-success-300 bg-success-50'
+            : 'border-peacock-200 bg-peacock-50'
+        }`}>
+          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+            retrainingDone ? 'bg-success-100' : 'bg-peacock-100'
+          }`}>
+            {retrainingDone
+              ? <CheckCircle2 className="h-5 w-5 text-success-600" />
+              : <BrainCircuit className="h-5 w-5 text-peacock-600 animate-pulse" />}
+          </div>
+          <div className="flex-1">
+            <p className={`text-sm font-bold ${retrainingDone ? 'text-success-700' : 'text-peacock-700'}`}>
+              {retrainingDone
+                ? `✅ ${retrainingResource} Model Retrained Successfully`
+                : `🔄 Retraining ${retrainingResource} Security Model…`}
+            </p>
+            <p className={`mt-0.5 text-xs ${retrainingDone ? 'text-success-500' : 'text-peacock-500'}`}>
+              {retrainingDone
+                ? 'New training sample incorporated. Model version bumped. Detection accuracy improved.'
+                : 'Incorporating rejected attack sample into training dataset. This improves future detection…'}
+            </p>
+            {!retrainingDone && (
+              <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-peacock-100">
+                <div
+                  className="h-full rounded-full bg-peacock-500 transition-all"
+                  style={{ width: '100%', transition: 'width 3s linear' }}
+                />
+              </div>
+            )}
+          </div>
+          {!retrainingDone && <Loader2 className="h-5 w-5 shrink-0 animate-spin text-peacock-500" />}
+        </div>
+      )}
+
+      {/* ── Page header ─────────────────────────────────────────────── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-ink-700">Admin Review</h1>
@@ -122,6 +174,71 @@ export function AdminReview({ onSelectReview, onNavigate }: AdminReviewProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100">
+              {/* ── Live notification rows ─────────────────────────── */}
+              {pendingNotifications.map((notif) => (
+                <tr key={notif.id} className="transition-colors hover:bg-ink-50/50">
+                  <td className="max-w-xs px-5 py-3.5">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <BellRing className="h-3 w-3 shrink-0 text-danger-500 animate-pulse" />
+                      <span className="text-[11px] font-semibold text-danger-600">PrismGuard Alert — Attack Blocked</span>
+                      <span className="rounded-full bg-danger-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-danger-600">Live</span>
+                      <span className="text-[11px] text-ink-400">{notif.timestamp}</span>
+                      <button onClick={() => dismissNotification(notif.id)} className="ml-1 text-ink-300 hover:text-ink-500">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <p className="truncate text-sm text-ink-600">{notif.prompt}</p>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <span className="rounded-md bg-ink-50 px-2 py-0.5 text-xs font-medium text-ink-500">{notif.resource}</span>
+                  </td>
+                  <td className="px-5 py-3.5 text-xs text-ink-400">PrismGuard Layer</td>
+                  <td className="px-5 py-3.5"><RiskBadge level="Critical" /></td>
+                  <td className="px-5 py-3.5 text-xs text-ink-300">Just now</td>
+                  <td className="px-5 py-3.5">
+                    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusStyles['Pending Review']}`}>
+                      Pending Review
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button onClick={() => onSelectReview(notif.reviewId)} className="flex items-center gap-1 rounded-md bg-peacock-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-peacock-700">
+                        <Eye className="h-3 w-3" /> Review
+                      </button>
+                      <button onClick={() => handleRejectNotification(notif.id, notif.resource)} className="flex items-center gap-1 rounded-md border border-danger-100 bg-danger-50 px-2.5 py-1 text-xs font-medium text-danger-600 transition-colors hover:bg-danger-100">
+                        <XCircle className="h-3 w-3" /> Malicious
+                      </button>
+                      <button onClick={() => dismissNotification(notif.id)} className="flex items-center gap-1 rounded-md border border-success-100 bg-success-50 px-2.5 py-1 text-xs font-medium text-success-600 transition-colors hover:bg-success-100">
+                        <CheckCircle2 className="h-3 w-3" /> Safe
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+
+              {/* ── Retraining progress row ────────────────────────── */}
+              {retrainingResource && (
+                <tr className={`animate-slide-down ${retrainingDone ? 'bg-success-50' : 'bg-peacock-50'}`}>
+                  <td colSpan={7} className="px-5 py-3">
+                    <div className="flex items-center gap-3">
+                      {retrainingDone
+                        ? <CheckCircle2 className="h-4 w-4 shrink-0 text-success-600" />
+                        : <Loader2 className="h-4 w-4 shrink-0 animate-spin text-peacock-600" />}
+                      <p className={`text-xs font-semibold ${retrainingDone ? 'text-success-700' : 'text-peacock-700'}`}>
+                        {retrainingDone
+                          ? `✅ ${retrainingResource} Security Model retrained — new attack sample incorporated, detection accuracy improved`
+                          : `Retraining ${retrainingResource} Security Model with rejected attack sample…`}
+                      </p>
+                      {!retrainingDone && (
+                        <div className="ml-auto h-1.5 w-40 overflow-hidden rounded-full bg-peacock-100">
+                          <div className="h-full rounded-full bg-peacock-500" style={{ width: '100%', transition: 'width 3s linear' }} />
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+
               {filtered.map((item) => (
                 <tr key={item.id} className="transition-colors hover:bg-ink-50/50">
                   <td className="max-w-xs truncate px-5 py-3.5 text-sm text-ink-600">{item.prompt}</td>
@@ -165,6 +282,48 @@ export function AdminReview({ onSelectReview, onNavigate }: AdminReviewProps) {
 
           {/* Mobile cards */}
           <div className="divide-y divide-ink-100 lg:hidden">
+            {/* Live notification cards (mobile) */}
+            {pendingNotifications.map((notif) => (
+              <div key={notif.id} className="p-4">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <BellRing className="h-3 w-3 text-danger-500 animate-pulse" />
+                  <span className="text-[11px] font-semibold text-danger-600">PrismGuard Alert — Attack Blocked</span>
+                  <span className="rounded-full bg-danger-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-danger-600">Live</span>
+                </div>
+                <p className="text-sm text-ink-600">{notif.prompt}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded-md bg-ink-50 px-2 py-0.5 text-xs font-medium text-ink-500">{notif.resource}</span>
+                  <RiskBadge level="Critical" />
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${statusStyles['Pending Review']}`}>Pending Review</span>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button onClick={() => handleRejectNotification(notif.id, notif.resource)} className="flex-1 rounded-md bg-peacock-600 px-3 py-1.5 text-xs font-medium text-white">
+                    Review
+                  </button>
+                  <button onClick={() => handleRejectNotification(notif.id, notif.resource)} className="rounded-md border border-danger-100 bg-danger-50 px-3 py-1.5 text-xs font-medium text-danger-600">
+                    Malicious
+                  </button>
+                  <button onClick={() => dismissNotification(notif.id)} className="rounded-md border border-success-100 bg-success-50 px-3 py-1.5 text-xs font-medium text-success-600">
+                    Safe
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {/* Retraining card (mobile) */}
+            {retrainingResource && (
+              <div className={`animate-slide-down p-4 ${retrainingDone ? 'bg-success-50' : 'bg-peacock-50'}`}>
+                <div className="flex items-center gap-2">
+                  {retrainingDone
+                    ? <CheckCircle2 className="h-4 w-4 text-success-600" />
+                    : <Loader2 className="h-4 w-4 text-peacock-600 animate-spin" />}
+                  <p className={`text-xs font-semibold ${retrainingDone ? 'text-success-700' : 'text-peacock-700'}`}>
+                    {retrainingDone ? `✅ ${retrainingResource} Model Retrained` : `🔄 Retraining ${retrainingResource} Model…`}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {filtered.map((item) => (
               <div key={item.id} className="p-4">
                 <p className="text-sm text-ink-600">{item.prompt}</p>
