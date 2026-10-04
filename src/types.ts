@@ -16,7 +16,7 @@ export type Screen =
 
 export type RiskLevel = 'Low' | 'Medium' | 'High' | 'Critical';
 export type PromptStatus = 'Allowed' | 'Blocked' | 'Review' | 'Suspicious';
-export type ResourceType = 'Banking' | 'Government' | 'Company' | 'Research';
+export type ResourceType = 'Banking' | 'Government' | 'Company' | 'Research' | string;
 export type ReviewStatus = 'Pending Review' | 'Malicious' | 'Safe' | 'False Positive' | 'Needs Investigation';
 export type ModelStatus = 'Active' | 'Training' | 'Validation' | 'Deploying';
 

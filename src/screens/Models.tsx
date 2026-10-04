@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { ModelStatusBadge } from '@/components/Badges';
 import { SkeletonCard } from '@/components/Skeletons';
-import { models } from '@/data';
+import { useDemoStore } from '@/demoStore';
 import type { Screen, SecurityModel } from '@/types';
 
 interface ModelsProps {
@@ -24,10 +24,11 @@ interface ModelsProps {
 }
 
 export function Models({ onSelectModel }: ModelsProps) {
+  const { modelsList, triggerRetraining } = useDemoStore();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 500);
+    const t = setTimeout(() => setLoading(false), 300);
     return () => clearTimeout(t);
   }, []);
 
@@ -41,7 +42,7 @@ export function Models({ onSelectModel }: ModelsProps) {
       <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2">
         {loading
           ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
-          : models.map((m) => (
+          : modelsList.map((m) => (
               <div key={m.id} className="animate-slide-up rounded-2xl border border-ink-100 bg-white p-6 shadow-card transition-all hover:shadow-card-hover">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-4">
@@ -94,7 +95,10 @@ export function Models({ onSelectModel }: ModelsProps) {
                   >
                     View Model <ArrowRight className="h-4 w-4" />
                   </button>
-                  <button className="flex items-center justify-center gap-1.5 rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-500 transition-all hover:border-peacock-200 hover:bg-peacock-50 hover:text-peacock-600">
+                  <button
+                    onClick={() => triggerRetraining(m.resource)}
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-500 transition-all hover:border-peacock-200 hover:bg-peacock-50 hover:text-peacock-600"
+                  >
                     <RotateCw className="h-4 w-4" /> Retrain
                   </button>
                 </div>
@@ -112,10 +116,17 @@ interface ModelDetailProps {
 }
 
 export function ModelDetail({ modelId, onBack }: ModelDetailProps) {
-  const [model, setModel] = useState<SecurityModel>(() => models.find((m) => m.id === modelId) || models[0]);
+  const { modelsList, updateModel } = useDemoStore();
+  const current = modelsList.find((m) => m.id === modelId) || modelsList[0];
+  const [model, setModel] = useState<SecurityModel>(current);
   const [showRetrain, setShowRetrain] = useState(false);
   const [training, setTraining] = useState(false);
   const [trainProgress, setTrainProgress] = useState(0);
+
+  useEffect(() => {
+    const found = modelsList.find((m) => m.id === modelId);
+    if (found) setModel(found);
+  }, [modelId, modelsList]);
 
   function startRetrain() {
     setShowRetrain(false);
@@ -126,18 +137,25 @@ export function ModelDetail({ modelId, onBack }: ModelDetailProps) {
         if (p >= 100) {
           clearInterval(interval);
           setTraining(false);
-          setModel((m) => ({
-            ...m,
-            status: 'Active',
+          const currentVer = parseFloat(model.version.replace('v', '')) || 1.0;
+          const nextVer = `v${(currentVer + 0.1).toFixed(1)}`;
+          const nextSamples = model.trainingSamples + 350;
+          const updated = {
+            status: 'Active' as const,
             lastTrained: 'Just now',
-            version: m.version,
+            version: nextVer,
+            trainingSamples: nextSamples,
+            detectionAccuracy: Math.min(99.6, Number((model.detectionAccuracy + 0.2).toFixed(1))),
             progress: 0,
-          }));
+            trainingHistory: [{ version: nextVer, date: 'Today', samples: nextSamples }, ...model.trainingHistory],
+          };
+          setModel((m) => ({ ...m, ...updated }));
+          updateModel(model.id, updated);
           return 100;
         }
         return p + 5;
       });
-    }, 150);
+    }, 120);
   }
 
   return (

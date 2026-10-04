@@ -96,7 +96,7 @@ const quickPrompts = [
 // Main Chat component
 // ---------------------------------------------------------------------------
 export function Chat() {
-  const { prismGuardEnabled, setPrismGuardEnabled, addNotification } = useDemoStore();
+  const { prismGuardEnabled, setPrismGuardEnabled, addNotification, resourcesList } = useDemoStore();
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -117,11 +117,17 @@ export function Chat() {
 
   function detectResource(text: string): ResourceType {
     const lower = text.toLowerCase();
+    for (const r of resourcesList) {
+      const typeKey = r.type.toLowerCase();
+      const nameKey = r.name.toLowerCase();
+      if (lower.includes(typeKey) || lower.includes(nameKey)) return r.type;
+    }
     if (lower.includes('interest') || lower.includes('bank') || lower.includes('account') || lower.includes('financial')) return 'Banking';
     if (lower.includes('government') || lower.includes('policy') || lower.includes('regulation')) return 'Government';
     if (lower.includes('company') || lower.includes('employee') || lower.includes('revenue') || lower.includes('quarterly')) return 'Company';
     if (lower.includes('research') || lower.includes('paper') || lower.includes('data') || lower.includes('quantum')) return 'Research';
-    return 'Banking';
+    if (lower.includes('patient') || lower.includes('health') || lower.includes('medical') || lower.includes('doctor')) return 'Healthcare';
+    return resourcesList[0]?.type || 'Banking';
   }
 
   // -------------------------------------------------------------------------
@@ -384,8 +390,8 @@ export function Chat() {
                 <ChevronDown className="h-4 w-4 text-ink-300" />
               </button>
               {resourceDropdown && (
-                <div className="absolute right-0 mt-1.5 w-44 animate-slide-down rounded-lg border border-ink-100 bg-white shadow-card-hover z-10">
-                  {(['Auto Detect', 'Banking', 'Government', 'Company', 'Research'] as const).map((r) => (
+                <div className="absolute right-0 mt-1.5 w-52 max-h-60 overflow-y-auto animate-slide-down rounded-lg border border-ink-100 bg-white shadow-card-hover z-10">
+                  {['Auto Detect', ...Array.from(new Set(resourcesList.map((r) => r.type || r.name)))].map((r) => (
                     <button
                       key={r}
                       onClick={() => { setSelectedResource(r); setResourceDropdown(false); }}
@@ -394,7 +400,7 @@ export function Chat() {
                       }`}
                     >
                       <span className={`h-2 w-2 rounded-full ${r === 'Auto Detect' ? 'bg-peacock-500' : 'bg-info-500'}`} />
-                      {r}
+                      <span className="truncate">{r}</span>
                     </button>
                   ))}
                 </div>
