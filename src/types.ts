@@ -123,5 +123,5 @@ export interface ChatMessage {
 
 export interface SecurityCheckStep {
   name: string;
-  status: 'passed' | 'blocked' | 'processing';
+  status: 'passed' | 'blocked' | 'processing' | 'flagged' | 'unavailable';
 }

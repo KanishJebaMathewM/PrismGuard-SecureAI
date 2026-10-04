@@ -1,0 +1,9 @@
+{
+  "verdict": "APPROVED",
+  "summary": "All requirements met: per-resource TF-IDF+LR models trained and serialised, retrain-on-classify flow confirmed end-to-end, TypeScript compiles clean, frontend wired correctly; two non-blocking findings (undeclared accuracy field in ClassifyResponse type, no dedup guard on classify route).",
+  "findings": [
+    "ClassifyResponse in src/api.ts is missing the 'accuracy' field that POST /api/admin/reviews/{id}/classify returns — add 'accuracy: number | null' to the interface to match the wire shape.",
+    "The classify route in main.py inserts a new Prompt row unconditionally with no deduplication check; repeated admin submissions of the same prompt text inflate training_samples without adding new signal — add an existence check by text+resource before inserting, mirroring the idempotency guard in seed_data.py."
+  ],
+  "reviewDoc": ".agents/tasks/prismguard-ml-backend/2026-10-04-133315-review.md"
+}

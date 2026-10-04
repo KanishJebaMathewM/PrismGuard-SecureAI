@@ -20,6 +20,7 @@ import {
   researchDB, datasets,
 } from '@/database';
 import type { ChatMessage, ResourceType, SecurityCheckStep } from '@/types';
+import { chatWithPrismGuard } from '@/api';
 
 const pipelineSteps = [
   { name: 'Keyword Filter', icon: Filter },
@@ -223,35 +224,60 @@ export function Chat() {
 
     await new Promise((r) => setTimeout(r, 900));
 
-    const check = isBlocked(text);
-    if (check.blocked) {
-      const steps: SecurityCheckStep[] = pipelineSteps.map((s, i) => {
-        if (check.layer.includes(s.name)) return { name: s.name, status: 'blocked' };
-        if (i < pipelineSteps.findIndex((s2) => check.layer.includes(s2.name))) return { name: s.name, status: 'passed' };
-        return { name: s.name, status: 'processing' };
-      });
-      const blockedMsg: ChatMessage = {
+    try {
+      // --- Online path: call the PrismGuard backend pipeline ---
+      const data = await chatWithPrismGuard(text, resourceType);
+
+      // Map security_steps from backend to SecurityCheckStep[]
+      // Backend names: 'Keyword Filter', 'Secure AI API', 'PrismGuard', 'Resource Model'
+      // These match pipelineSteps exactly — map status directly (types.ts now includes 'flagged' | 'unavailable').
+      const steps: SecurityCheckStep[] = data.security_steps.map((s) => ({
+        name: s.name,
+        status: s.status as SecurityCheckStep['status'],
+      }));
+
+      const assistantMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'assistant',
-        content: `This prompt was blocked by PrismGuard.\n\nReason: ${check.reason}\nBlocked at: ${check.layer}`,
+        content: data.response,
         securityCheck: steps,
-        blocked: true,
-        blockedReason: check.reason,
-        blockedLayer: check.layer,
+        blocked: data.blocked,
+        blockedReason: data.blocked_reason ?? undefined,
+        blockedLayer: data.blocked_layer ?? undefined,
         resource: resourceType,
       };
-      setMessages((prev) => [...prev, blockedMsg]);
-    } else {
-      const steps: SecurityCheckStep[] = pipelineSteps.map((s) => ({ name: s.name, status: 'passed' }));
-      const responseMsg: ChatMessage = {
-        id: `a-${Date.now()}`,
-        role: 'assistant',
-        content: queryDatabase(text, resourceType),
-        securityCheck: steps,
-        resource: resourceType,
-      };
-      setMessages((prev) => [...prev, responseMsg]);
+      setMessages((prev) => [...prev, assistantMsg]);
+    } catch {
+      // --- Offline / unreachable fallback: use existing local logic ---
+      const check = isBlocked(text);
+      if (check.blocked) {
+        const steps: SecurityCheckStep[] = pipelineSteps.map((s, i) => {
+          if (check.layer.includes(s.name)) return { name: s.name, status: 'blocked' as const };
+          if (i < pipelineSteps.findIndex((s2) => check.layer.includes(s2.name))) return { name: s.name, status: 'passed' as const };
+          return { name: s.name, status: 'processing' as const };
+        });
+        setMessages((prev) => [...prev, {
+          id: `a-${Date.now()}`,
+          role: 'assistant',
+          content: `This prompt was blocked by PrismGuard.\n\nReason: ${check.reason}\nBlocked at: ${check.layer}`,
+          securityCheck: steps,
+          blocked: true,
+          blockedReason: check.reason,
+          blockedLayer: check.layer,
+          resource: resourceType,
+        }]);
+      } else {
+        const steps: SecurityCheckStep[] = pipelineSteps.map((s) => ({ name: s.name, status: 'passed' as const }));
+        setMessages((prev) => [...prev, {
+          id: `a-${Date.now()}`,
+          role: 'assistant',
+          content: queryDatabase(text, resourceType) + '\n\n[Offline mode]',
+          securityCheck: steps,
+          resource: resourceType,
+        }]);
+      }
     }
+
     setProcessing(false);
   }
 

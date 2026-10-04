@@ -17,6 +17,7 @@ Start:
     uvicorn backend.main:app --reload --port 8000
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import Optional
@@ -35,6 +36,8 @@ load_dotenv(_PROJECT_ROOT / ".env")
 
 from backend.database import ModelMetadata, Prompt, get_db  # noqa: E402
 from backend.ml_models import RESOURCES, predict, retrain_model  # noqa: E402
+from backend.guard_client import check_prompt as guard_check_prompt  # noqa: E402
+from backend.llm_client import generate_response as llm_generate  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # App + CORS
@@ -70,6 +73,27 @@ class ClassifyRequest(BaseModel):
     classification: str          # "Malicious" | "Safe"
     category: str = ""
     notes: str = ""
+
+
+class ChatRequest(BaseModel):
+    text: str
+    resource: str
+
+
+class SecurityStepResult(BaseModel):
+    name: str
+    status: str  # 'passed' | 'blocked' | 'flagged' | 'unavailable'
+
+
+class ChatResponse(BaseModel):
+    response: str
+    blocked: bool
+    blocked_reason: Optional[str]
+    blocked_layer: Optional[str]
+    resource: str
+    security_steps: list[SecurityStepResult]
+    sent_to_review: bool
+    confidence: Optional[float]
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +253,164 @@ def predict_prompt(request: PredictRequest):
     resource = _normalise_resource(request.resource)
     result = predict(resource, request.text)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Keyword blocklist (shared between /api/chat and future routes)
+# ---------------------------------------------------------------------------
+_KEYWORD_BLOCKLIST = [
+    'ignore previous', 'ignore all', 'reveal customer', 'reveal sensitive',
+    'export all', 'reveal all', 'bypass', 'admin mode', 'developer mode',
+    'grant me access', 'system prompt', 'jailbreak', 'salary', 'payroll',
+]
+
+
+# POST /api/chat
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest, db: Session = Depends(get_db)):
+    text = request.text
+    resource = _normalise_resource(request.resource)
+    lower = text.lower()
+
+    steps: list[SecurityStepResult] = []
+    blocked = False
+    blocked_reason: Optional[str] = None
+    blocked_layer: Optional[str] = None
+    sent_to_review = False
+    confidence: Optional[float] = None
+    response_text = ""
+
+    # ------------------------------------------------------------------
+    # Step 1 — Keyword Filter
+    # ------------------------------------------------------------------
+    if any(kw in lower for kw in _KEYWORD_BLOCKLIST):
+        steps.append(SecurityStepResult(name="Keyword Filter", status="blocked"))
+        blocked = True
+        blocked_reason = "Blocked keyword detected in prompt."
+        blocked_layer = "Keyword Filter"
+        db.add(Prompt(text=text, resource=resource, label=1, risk="High", source="chat"))
+        db.commit()
+        return ChatResponse(
+            response=(
+                "This prompt was blocked by PrismGuard.\n\n"
+                "Reason: Blocked keyword detected in prompt.\n"
+                "Blocked at: Keyword Filter"
+            ),
+            blocked=True,
+            blocked_reason=blocked_reason,
+            blocked_layer=blocked_layer,
+            resource=resource,
+            security_steps=steps,
+            sent_to_review=False,
+            confidence=None,
+        )
+    steps.append(SecurityStepResult(name="Keyword Filter", status="passed"))
+
+    # ------------------------------------------------------------------
+    # Step 2 — Secure AI Guard API
+    # ------------------------------------------------------------------
+    try:
+        guard_result = await guard_check_prompt(text, resource)
+        if guard_result.blocked:
+            steps.append(SecurityStepResult(name="Secure AI API", status="blocked"))
+            blocked = True
+            blocked_reason = guard_result.reason or "Blocked by Secure AI Guard."
+            blocked_layer = "Secure AI API Layer"
+            confidence = guard_result.confidence or None
+            db.add(Prompt(text=text, resource=resource, label=1, risk="High", source="chat"))
+            db.commit()
+            return ChatResponse(
+                response=(
+                    f"This prompt was blocked by PrismGuard.\n\n"
+                    f"Reason: {blocked_reason}\n"
+                    f"Blocked at: {blocked_layer}"
+                ),
+                blocked=True,
+                blocked_reason=blocked_reason,
+                blocked_layer=blocked_layer,
+                resource=resource,
+                security_steps=steps,
+                sent_to_review=False,
+                confidence=confidence,
+            )
+        elif guard_result.unavailable:
+            steps.append(SecurityStepResult(name="Secure AI API", status="unavailable"))
+        else:
+            steps.append(SecurityStepResult(name="Secure AI API", status="passed"))
+    except Exception as exc:
+        logging.warning("Guard API unavailable: %s", exc)
+        steps.append(SecurityStepResult(name="Secure AI API", status="unavailable"))
+
+    # ------------------------------------------------------------------
+    # Step 3 — ML Model (PrismGuard)
+    # ------------------------------------------------------------------
+    ml_result = predict(resource, text)
+    ml_label = ml_result["label"]
+    ml_conf = float(ml_result["confidence"])
+    confidence = ml_conf
+
+    if ml_label == 1 and ml_conf > 0.7:
+        steps.append(SecurityStepResult(name="PrismGuard", status="blocked"))
+        blocked = True
+        blocked_reason = "Prompt flagged as malicious by PrismGuard ML model."
+        blocked_layer = "PrismGuard ML Layer"
+        sent_to_review = True
+        db.add(Prompt(text=text, resource=resource, label=1, risk="High", source="chat-review"))
+        db.commit()
+        return ChatResponse(
+            response=(
+                f"This prompt was blocked by PrismGuard.\n\n"
+                f"Reason: {blocked_reason}\n"
+                f"Blocked at: {blocked_layer}"
+            ),
+            blocked=True,
+            blocked_reason=blocked_reason,
+            blocked_layer=blocked_layer,
+            resource=resource,
+            security_steps=steps,
+            sent_to_review=True,
+            confidence=ml_conf,
+        )
+    elif ml_label == 1 and 0.5 <= ml_conf <= 0.7:
+        steps.append(SecurityStepResult(name="PrismGuard", status="flagged"))
+        sent_to_review = True
+    else:
+        steps.append(SecurityStepResult(name="PrismGuard", status="passed"))
+
+    # ------------------------------------------------------------------
+    # Step 4 — Resource Model (display step — model already ran above)
+    # ------------------------------------------------------------------
+    steps.append(SecurityStepResult(name="Resource Model", status="passed"))
+
+    # ------------------------------------------------------------------
+    # Step 5 — LLM Response
+    # ------------------------------------------------------------------
+    try:
+        response_text = await llm_generate(text, resource)
+    except Exception as exc:
+        logging.warning("LLM unavailable: %s", exc)
+        response_text = (
+            f"I'm currently unable to process your request for {resource} data. "
+            "Please try again shortly."
+        )
+
+    # ------------------------------------------------------------------
+    # Step 6 — Audit log
+    # ------------------------------------------------------------------
+    audit_source = "chat-review" if sent_to_review else "chat"
+    db.add(Prompt(text=text, resource=resource, label=0, risk="Low", source=audit_source))
+    db.commit()
+
+    return ChatResponse(
+        response=response_text,
+        blocked=False,
+        blocked_reason=None,
+        blocked_layer=None,
+        resource=resource,
+        security_steps=steps,
+        sent_to_review=sent_to_review,
+        confidence=ml_conf,
+    )
 
 
 # POST /api/admin/reviews/{review_id}/classify

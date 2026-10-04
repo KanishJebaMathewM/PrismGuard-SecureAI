@@ -104,3 +104,30 @@ export const classifyReview = (id: string, payload: ClassifyPayload) =>
   });
 
 export const fetchStats = () => request<StatsResponse>('/stats');
+
+// ---------------------------------------------------------------------------
+// Chat pipeline
+// ---------------------------------------------------------------------------
+
+export interface SecurityStep {
+  name: string;
+  status: 'passed' | 'blocked' | 'flagged' | 'unavailable';
+}
+
+export interface ChatResponse {
+  response: string;
+  blocked: boolean;
+  blocked_reason: string | null;
+  blocked_layer: string | null;
+  resource: string;
+  security_steps: SecurityStep[];
+  sent_to_review: boolean;
+  confidence: number | null;
+}
+
+export const chatWithPrismGuard = (text: string, resource: string) =>
+  request<ChatResponse>('/chat', {
+    method: 'POST',
+    body: JSON.stringify({ text, resource }),
+  });
+
