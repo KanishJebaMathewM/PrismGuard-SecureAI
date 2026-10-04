@@ -334,11 +334,20 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
                 confidence=confidence,
             )
         elif guard_result.unavailable:
+            logging.warning(
+                "guard_unavailable: SecureGuard API unreachable for resource=%s; "
+                "failing open and continuing pipeline (event=guard_unavailable)",
+                resource,
+            )
             steps.append(SecurityStepResult(name="Secure AI API", status="unavailable"))
         else:
             steps.append(SecurityStepResult(name="Secure AI API", status="passed"))
     except Exception as exc:
-        logging.warning("Guard API unavailable: %s", exc)
+        logging.warning(
+            "guard_unavailable: exception calling SecureGuard for resource=%s "
+            "(event=guard_unavailable): %s",
+            resource, exc,
+        )
         steps.append(SecurityStepResult(name="Secure AI API", status="unavailable"))
 
     # ------------------------------------------------------------------
@@ -398,7 +407,9 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
     # Step 6 — Audit log
     # ------------------------------------------------------------------
     audit_source = "chat-review" if sent_to_review else "chat"
-    db.add(Prompt(text=text, resource=resource, label=0, risk="Low", source=audit_source))
+    audit_label = 1 if sent_to_review else 0
+    audit_risk = "Medium" if sent_to_review else "Low"
+    db.add(Prompt(text=text, resource=resource, label=audit_label, risk=audit_risk, source=audit_source))
     db.commit()
 
     return ChatResponse(

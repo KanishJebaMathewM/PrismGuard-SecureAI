@@ -96,15 +96,17 @@ async def check_prompt(text: str, resource: str) -> GuardResult:
                             headers=headers,
                         )
                         if resp.status_code == 403:
-                            # 403 can itself be a "blocked" signal
-                            _discovered_endpoint = ep
+                            # 403 can itself be a "blocked" signal; cache only if it's a
+                            # deliberate block decision, not a misconfigured-auth rejection.
+                            # We can't distinguish these, so cache only on 2xx (see below).
                             return GuardResult(blocked=True, reason="Blocked by SecureGuard (403)", confidence=1.0)
-                        if resp.status_code < 500:
-                            # 2xx or 4xx (other than 403) — usable response
+                        if 200 <= resp.status_code < 300:
+                            # Only cache on confirmed 2xx — avoids locking onto a 401/404
+                            # endpoint that would permanently reject all future requests.
                             _discovered_endpoint = ep
                             raw = resp.json() if resp.content else {}
                             return _parse_guard_response(raw)
-                        # 5xx — try next endpoint
+                        # 4xx (non-403) or 5xx — try next endpoint without caching
                     except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError):
                         # Network issue on this specific endpoint — try next
                         continue
@@ -117,15 +119,25 @@ async def check_prompt(text: str, resource: str) -> GuardResult:
                     logger.warning("Guard API: all endpoints failed on attempt %d, retrying", attempt + 1)
                     continue
                 else:
-                    logger.warning("Guard API: all endpoints exhausted after %d attempts; failing open", _MAX_RETRY + 1)
+                    logger.warning(
+                        "guard_unavailable: all endpoints exhausted after %d attempts; failing open "
+                        "(event=guard_unavailable url=%s)",
+                        _MAX_RETRY + 1, _BASE_URL,
+                    )
                     return GuardResult(blocked=False, unavailable=True, reason="Guard unavailable")
 
         except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as exc:
-            logger.warning("Guard API network error on attempt %d: %s", attempt + 1, exc)
+            logger.warning(
+                "guard_unavailable: network error on attempt %d (event=guard_unavailable url=%s): %s",
+                attempt + 1, _BASE_URL, exc,
+            )
             if attempt == _MAX_RETRY:
                 return GuardResult(blocked=False, unavailable=True, reason=str(exc))
         except Exception as exc:
-            logger.warning("Guard API unexpected error: %s", exc)
+            logger.warning(
+                "guard_unavailable: unexpected error (event=guard_unavailable url=%s): %s",
+                _BASE_URL, exc,
+            )
             return GuardResult(blocked=False, unavailable=True, reason=str(exc))
 
     return GuardResult(blocked=False, unavailable=True, reason="Guard unavailable")

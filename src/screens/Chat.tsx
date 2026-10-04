@@ -13,12 +13,7 @@ import {
   Lock,
   AlertTriangle,
 } from 'lucide-react';
-import {
-  bankingDB, bankingRegulations, interestRates,
-  governmentDB, governmentPolicies,
-  companyDB, financialReports, internalDocs,
-  researchDB, datasets,
-} from '@/database';
+
 import type { ChatMessage, ResourceType, SecurityCheckStep } from '@/types';
 import { chatWithPrismGuard } from '@/api';
 
@@ -36,7 +31,7 @@ const resourceNames: Record<string, string> = {
   Research: 'Research Model',
 };
 
-const blockedKeywords = ['ignore previous', 'ignore all', 'reveal customer', 'reveal sensitive', 'export all', 'reveal all', 'bypass', 'admin mode', 'developer mode', 'grant me access', 'system prompt', 'jailbreak', 'salary', 'payroll'];
+
 
 const quickPrompts = [
   { label: 'Get banking insights', text: 'What is the current interest rate for savings accounts?', resource: 'Banking' as ResourceType },
@@ -45,128 +40,6 @@ const quickPrompts = [
   { label: 'Research public data', text: 'Find recent papers on quantum computing.', resource: 'Research' as ResourceType },
 ];
 
-function queryDatabase(text: string, resource: ResourceType): string {
-  const lower = text.toLowerCase();
-
-  if (resource === 'Banking') {
-    if (lower.includes('interest rate') || lower.includes('interest rates')) {
-      return `Current Interest Rates (APY):
-
-• Savings Accounts: ${interestRates.savings}%
-• Checking Accounts: ${interestRates.checking}%
-• Loan Products: ${interestRates.loan}%
-• Investment Accounts: ${interestRates.investment}%
-
-Rates effective as of today. Retrieved securely through the Banking Security Model.`;
-    }
-
-    if (lower.includes('regulation') || lower.includes('policy') || lower.includes('compliance')) {
-      const list = bankingRegulations.map(r => `• ${r.title} (effective ${r.effectiveDate})\n  ${r.summary}`).join('\n\n');
-      return `Banking Regulations & Policies:\n\n${list}\n\nRetrieved securely through the Banking Security Model.`;
-    }
-
-    // Account lookup — search by holder name
-    const matchedAccounts = bankingDB.filter(acc =>
-      lower.split(/\s+/).some(word => word.length > 3 && acc.holder.toLowerCase().includes(word))
-    );
-    if (lower.includes('account') && matchedAccounts.length > 0) {
-      const list = matchedAccounts.map(acc =>
-        `• ${acc.accountId} — ${acc.holder} | ${acc.accountType} | Branch: ${acc.branch} | Status: ${acc.status}`
-      ).join('\n');
-      return `Matching Accounts (non-sensitive fields only):\n\n${list}\n\nBalance and rate details require authenticated access. Retrieved securely through the Banking Security Model.`;
-    }
-
-    return `Banking System is ready. You can ask about:\n\n• Interest rates (savings, checking, loan, investment)\n• Banking regulations and compliance policies\n• Account lookup by holder name\n\nAll queries are routed through the Banking Security Model.`;
-  }
-
-  if (resource === 'Government') {
-    // Classified/Confidential access attempt
-    if (lower.includes('classified') || lower.includes('confidential') || lower.includes('secret')) {
-      return `Access Denied.\n\nThe records you are querying are classified as Confidential or Classified. Access to these records requires elevated security clearance.\n\nIf you believe you have the required clearance, contact your system administrator.`;
-    }
-
-    if (lower.includes('policy') || lower.includes('retention') || lower.includes('foia') || lower.includes('privacy')) {
-      const publicPolicies = governmentPolicies.filter(p => p.classification === 'Public');
-      const list = publicPolicies.map(p => `• ${p.title}\n  ${p.details}`).join('\n\n');
-      return `Public Government Policies:\n\n${list}\n\nRetrieved securely through the Government Security Model.`;
-    }
-
-    if (lower.includes('department') || lower.includes('record') || lower.includes('report')) {
-      const accessible = governmentDB.filter(r => r.classification === 'Public' || r.classification === 'Internal');
-      const list = accessible.map(r =>
-        `• [${r.classification}] ${r.title} — ${r.department}\n  ${r.description} (Updated: ${r.lastUpdated})`
-      ).join('\n\n');
-      return `Government Records (Public & Internal):\n\n${list}\n\nClassified and Confidential records require elevated clearance. Retrieved securely through the Government Security Model.`;
-    }
-
-    return `Government Database is ready. You can ask about:\n\n• Government policies (data retention, FOIA, privacy)\n• Department records and reports\n• Public and Internal classification records\n\nClassified records require elevated clearance. All queries routed through the Government Security Model.`;
-  }
-
-  if (resource === 'Company') {
-    if (lower.includes('revenue') || lower.includes('quarterly') || lower.includes('financial')) {
-      const publicReports = financialReports.filter(r => r.public);
-      const list = publicReports.map(r =>
-        `• ${r.quarter}: $${(r.revenue / 1000000).toFixed(2)}M revenue | Growth: +${r.growth}% YoY (reported ${r.reportDate})`
-      ).join('\n');
-      return `Quarterly Financial Reports (Public):\n\n${list}\n\nRetrieved securely through the Company Security Model.`;
-    }
-
-    if (lower.includes('employee') && !lower.includes('salary') && !lower.includes('payroll')) {
-      const activeEmployees = companyDB.filter(e => e.status !== 'Terminated');
-      const list = activeEmployees.map(e =>
-        `• ${e.name} — ${e.role}, ${e.department} (${e.status})`
-      ).join('\n');
-      return `Employee Directory (Active & On Leave):\n\n${list}\n\nSalary and compensation data is restricted. Retrieved securely through the Company Security Model.`;
-    }
-
-    if (lower.includes('document') || lower.includes('roadmap') || lower.includes('doc')) {
-      const list = internalDocs.map(d =>
-        `• ${d.title} [${d.sensitivity}] — Last updated: ${d.lastUpdated}`
-      ).join('\n');
-      return `Internal Document Index:\n\n${list}\n\nDocument contents require appropriate access permissions. Retrieved securely through the Company Security Model.`;
-    }
-
-    return `Company Database is ready. You can ask about:\n\n• Quarterly revenue and financial reports\n• Employee directory (names, roles, departments)\n• Internal document index\n\nSalary and payroll data is restricted. All queries routed through the Company Security Model.`;
-  }
-
-  if (resource === 'Research') {
-    if (lower.includes('dataset') || lower.includes('data set')) {
-      const openDatasets = datasets.filter(d => d.access === 'Open');
-      const list = openDatasets.map(d =>
-        `• ${d.name} — ${d.size} | ${d.records.toLocaleString()} records\n  ${d.description}`
-      ).join('\n\n');
-      return `Open Research Datasets:\n\n${list}\n\nRestricted datasets require institutional access. Retrieved securely through the Research Security Model.`;
-    }
-
-    let papers = researchDB.filter(p => p.access === 'Open');
-
-    if (lower.includes('quantum')) {
-      papers = papers.filter(p => p.topic.includes('quantum'));
-    } else if (lower.includes('ai') || lower.includes('safety') || lower.includes('alignment')) {
-      papers = papers.filter(p => p.topic.includes('AI safety'));
-    } else if (lower.includes('crypto') || lower.includes('encryption')) {
-      papers = papers.filter(p => p.topic.includes('cryptography'));
-    } else if (lower.includes('climate') || lower.includes('environment')) {
-      papers = papers.filter(p => p.topic.includes('climate'));
-    } else if (lower.includes('genomic') || lower.includes('crispr') || lower.includes('dna')) {
-      papers = papers.filter(p => p.topic.includes('genomics'));
-    }
-
-    if (papers.length > 0 && (lower.includes('paper') || lower.includes('research') || lower.includes('find') || lower.includes('quantum') || lower.includes('ai') || lower.includes('crypto') || lower.includes('climate') || lower.includes('genomic'))) {
-      const label = papers.length === researchDB.filter(p => p.access === 'Open').length
-        ? 'Open-access research papers'
-        : `papers matching your query`;
-      const list = papers.map((p, i) =>
-        `${i + 1}. "${p.title}" — ${p.authors.join(', ')} (${p.publishedDate.slice(0, 4)})\n   Abstract: ${p.abstract}\n   Citations: ${p.citations} | Access: ${p.access}`
-      ).join('\n\n');
-      return `Found ${papers.length} ${label}:\n\n${list}\n\nRetrieved securely through the Research Security Model.`;
-    }
-
-    return `Research Resources are ready. You can ask about:\n\n• Research papers (quantum, AI safety, cryptography, climate, genomics)\n• Open datasets\n• Specific topics or author searches\n\nRestricted papers require institutional access. All queries routed through the Research Security Model.`;
-  }
-
-  return 'Resource query processed securely through PrismGuard.';
-}
 
 export function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -195,24 +68,6 @@ export function Chat() {
     return 'Banking';
   }
 
-  function isBlocked(text: string): { blocked: boolean; reason: string; layer: string } {
-    const lower = text.toLowerCase();
-    for (const kw of blockedKeywords) {
-      if (lower.includes(kw)) {
-        if (lower.includes('ignore previous') || lower.includes('ignore all') || lower.includes('system prompt') || lower.includes('jailbreak')) {
-          return { blocked: true, reason: 'Potential prompt injection detected.', layer: 'Secure AI API Layer' };
-        }
-        if (lower.includes('reveal customer') || lower.includes('reveal sensitive') || lower.includes('reveal all') || lower.includes('export all')) {
-          return { blocked: true, reason: 'Unauthorized data extraction attempt detected.', layer: 'PrismGuard Layer' };
-        }
-        if (lower.includes('bypass') || lower.includes('admin mode') || lower.includes('developer mode') || lower.includes('grant me access')) {
-          return { blocked: true, reason: 'Privilege escalation or jailbreak attempt detected.', layer: 'PrismGuard Layer' };
-        }
-      }
-    }
-    return { blocked: false, reason: '', layer: '' };
-  }
-
   async function handleSend(text: string, resource?: ResourceType) {
     if (!text.trim() || processing) return;
     setProcessing(true);
@@ -225,12 +80,9 @@ export function Chat() {
     await new Promise((r) => setTimeout(r, 900));
 
     try {
-      // --- Online path: call the PrismGuard backend pipeline ---
+      // Call the PrismGuard backend pipeline — responses always come from the API keys
       const data = await chatWithPrismGuard(text, resourceType);
 
-      // Map security_steps from backend to SecurityCheckStep[]
-      // Backend names: 'Keyword Filter', 'Secure AI API', 'PrismGuard', 'Resource Model'
-      // These match pipelineSteps exactly — map status directly (types.ts now includes 'flagged' | 'unavailable').
       const steps: SecurityCheckStep[] = data.security_steps.map((s) => ({
         name: s.name,
         status: s.status as SecurityCheckStep['status'],
@@ -247,35 +99,16 @@ export function Chat() {
         resource: resourceType,
       };
       setMessages((prev) => [...prev, assistantMsg]);
-    } catch {
-      // --- Offline / unreachable fallback: use existing local logic ---
-      const check = isBlocked(text);
-      if (check.blocked) {
-        const steps: SecurityCheckStep[] = pipelineSteps.map((s, i) => {
-          if (check.layer.includes(s.name)) return { name: s.name, status: 'blocked' as const };
-          if (i < pipelineSteps.findIndex((s2) => check.layer.includes(s2.name))) return { name: s.name, status: 'passed' as const };
-          return { name: s.name, status: 'processing' as const };
-        });
-        setMessages((prev) => [...prev, {
-          id: `a-${Date.now()}`,
-          role: 'assistant',
-          content: `This prompt was blocked by PrismGuard.\n\nReason: ${check.reason}\nBlocked at: ${check.layer}`,
-          securityCheck: steps,
-          blocked: true,
-          blockedReason: check.reason,
-          blockedLayer: check.layer,
-          resource: resourceType,
-        }]);
-      } else {
-        const steps: SecurityCheckStep[] = pipelineSteps.map((s) => ({ name: s.name, status: 'passed' as const }));
-        setMessages((prev) => [...prev, {
-          id: `a-${Date.now()}`,
-          role: 'assistant',
-          content: queryDatabase(text, resourceType) + '\n\n[Offline mode]',
-          securityCheck: steps,
-          resource: resourceType,
-        }]);
-      }
+    } catch (err) {
+      // Backend is unreachable — surface an error instead of returning local data
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      setMessages((prev) => [...prev, {
+        id: `a-${Date.now()}`,
+        role: 'assistant',
+        content: `PrismGuard backend is unavailable.\n\nPlease ensure the FastAPI server is running on port 8000 and your API keys are configured in .env.\n\nError: ${errorMsg}`,
+        blocked: false,
+        resource: resourceType,
+      }]);
     }
 
     setProcessing(false);
