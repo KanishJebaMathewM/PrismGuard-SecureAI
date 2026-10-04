@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="prismGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e0d7ff"/>
+      <stop offset="50%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="prismShine" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#c4b5fd" stop-opacity="0.4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Shield body -->
+  <path d="M16 2 L28 7 L28 18 C28 24 22 29 16 30 C10 29 4 24 4 18 L4 7 Z"
+        fill="url(#shieldGrad)" stroke="#6d28d9" stroke-width="0.5"/>
+
+  <!-- Shield inner highlight -->
+  <path d="M16 4.5 L26 8.8 L26 18 C26 23 21 27.2 16 28.2 C11 27.2 6 23 6 18 L6 8.8 Z"
+        fill="none" stroke="#a78bfa" stroke-width="0.6" stroke-opacity="0.5"/>
+
+  <!-- Prism shape (triangle pointing up) -->
+  <polygon points="16,8 23,22 9,22"
+           fill="url(#prismGrad)" stroke="#c4b5fd" stroke-width="0.5"/>
+
+  <!-- Prism left face (darker) -->
+  <polygon points="16,8 9,22 16,22"
+           fill="#5b21b6" fill-opacity="0.55"/>
+
+  <!-- Prism top shine -->
+  <polygon points="16,8 21,17 16,17"
+           fill="url(#prismShine)" fill-opacity="0.6"/>
+
+  <!-- Light refraction rays at bottom -->
+  <line x1="9" y1="22" x2="6" y2="27" stroke="#f9a8d4" stroke-width="1" stroke-linecap="round" stroke-opacity="0.8"/>
+  <line x1="12" y1="22" x2="11" y2="27" stroke="#a5f3fc" stroke-width="1" stroke-linecap="round" stroke-opacity="0.8"/>
+  <line x1="16" y1="22" x2="16" y2="27" stroke="#e0d7ff" stroke-width="1.2" stroke-linecap="round" stroke-opacity="0.9"/>
+  <line x1="20" y1="22" x2="21" y2="27" stroke="#a5f3fc" stroke-width="1" stroke-linecap="round" stroke-opacity="0.8"/>
+  <line x1="23" y1="22" x2="26" y2="27" stroke="#f9a8d4" stroke-width="1" stroke-linecap="round" stroke-opacity="0.8"/>
+</svg>
