@@ -1,0 +1,7 @@
+{
+  "task_id": "task-prismguard-ml-backend",
+  "task_description": "Add a Python FastAPI backend with SQLite (SQLAlchemy) and per-resource scikit-learn ML classifiers to the PrismGuard React+TypeScript frontend. Models train on research prompts from researchPrompts.ts and synthetic seed data; admin prompt classification triggers immediate model retraining. Two frontend screens (AdminReview, Training) are wired to the live backend.",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}
