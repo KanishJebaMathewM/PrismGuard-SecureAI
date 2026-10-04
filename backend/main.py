@@ -94,6 +94,7 @@ class ChatResponse(BaseModel):
     security_steps: list[SecurityStepResult]
     sent_to_review: bool
     confidence: Optional[float]
+    guard_bypassed: bool = False  # True when Guard API was unreachable and skipped
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +265,10 @@ _KEYWORD_BLOCKLIST = [
     'grant me access', 'system prompt', 'jailbreak', 'salary', 'payroll',
 ]
 
+# Maximum allowed prompt length — sourced from .env; enforced before any
+# downstream call so oversized inputs never reach the Guard or LLM APIs.
+_MAX_INPUT_LENGTH = int(os.getenv("MAX_INPUT_LENGTH", "4000"))
+
 
 # POST /api/chat
 @app.post("/api/chat", response_model=ChatResponse)
@@ -279,6 +284,16 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
     sent_to_review = False
     confidence: Optional[float] = None
     response_text = ""
+    guard_bypassed = False
+
+    # ------------------------------------------------------------------
+    # Input length guard — enforced before any downstream API call
+    # ------------------------------------------------------------------
+    if len(text) > _MAX_INPUT_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Prompt exceeds maximum allowed length of {_MAX_INPUT_LENGTH} characters.",
+        )
 
     # ------------------------------------------------------------------
     # Step 1 — Keyword Filter
@@ -303,6 +318,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
             security_steps=steps,
             sent_to_review=False,
             confidence=None,
+            guard_bypassed=False,
         )
     steps.append(SecurityStepResult(name="Keyword Filter", status="passed"))
 
@@ -332,6 +348,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
                 security_steps=steps,
                 sent_to_review=False,
                 confidence=confidence,
+                guard_bypassed=False,
             )
         elif guard_result.unavailable:
             logging.warning(
@@ -340,6 +357,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
                 resource,
             )
             steps.append(SecurityStepResult(name="Secure AI API", status="unavailable"))
+            guard_bypassed = True
         else:
             steps.append(SecurityStepResult(name="Secure AI API", status="passed"))
     except Exception as exc:
@@ -349,6 +367,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
             resource, exc,
         )
         steps.append(SecurityStepResult(name="Secure AI API", status="unavailable"))
+        guard_bypassed = True
 
     # ------------------------------------------------------------------
     # Step 3 — ML Model (PrismGuard)
@@ -379,6 +398,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
             security_steps=steps,
             sent_to_review=True,
             confidence=ml_conf,
+            guard_bypassed=guard_bypassed,
         )
     elif ml_label == 1 and 0.5 <= ml_conf <= 0.7:
         steps.append(SecurityStepResult(name="PrismGuard", status="flagged"))
@@ -421,6 +441,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
         security_steps=steps,
         sent_to_review=sent_to_review,
         confidence=ml_conf,
+        guard_bypassed=guard_bypassed,
     )
 
 

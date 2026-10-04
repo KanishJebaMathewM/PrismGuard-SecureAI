@@ -123,6 +123,7 @@ export interface ChatResponse {
   security_steps: SecurityStep[];
   sent_to_review: boolean;
   confidence: number | null;
+  guard_bypassed: boolean;
 }
 
 export const chatWithPrismGuard = (text: string, resource: string) =>
