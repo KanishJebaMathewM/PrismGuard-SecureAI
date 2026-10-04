@@ -148,9 +148,15 @@ export function Chat() {
       // Call the PrismGuard backend pipeline — responses always come from the API keys
       const data = await chatWithPrismGuard(text, resourceType);
 
+      const KNOWN_STATUSES = new Set<SecurityCheckStep['status']>(['passed', 'blocked', 'processing', 'flagged', 'unavailable']);
       const steps: SecurityCheckStep[] = data.security_steps.map((s) => ({
         name: s.name,
-        status: s.status as SecurityCheckStep['status'],
+        // Runtime guard: unknown status strings fall back to 'processing' so
+        // the UI always renders a recognisable state rather than silently
+        // passing an unexpected value through the type assertion.
+        status: KNOWN_STATUSES.has(s.status as SecurityCheckStep['status'])
+          ? (s.status as SecurityCheckStep['status'])
+          : 'processing',
       }));
 
       const assistantMsg: ChatMessage = {
@@ -314,7 +320,7 @@ function SecurityCheckVisualization({ steps, blocked, resource }: { steps: Secur
   const allSteps = [
     { name: 'Prompt received', icon: Filter, status: 'passed' as const },
     ...steps.map(s => ({ name: s.name, icon: pipelineSteps.find(p => p.name === s.name)?.icon || ShieldCheck, status: s.status })),
-    { name: resourceNames[resource || 'Banking'], icon: BrainCircuit, status: blocked ? 'blocked' as const : 'passed' as const },
+    { name: `Resource Accessed (${resource || 'Banking'})`, icon: BrainCircuit, status: blocked ? 'blocked' as const : 'passed' as const },
     { name: 'Response', icon: Database, status: blocked ? 'processing' as const : 'passed' as const },
   ];
 

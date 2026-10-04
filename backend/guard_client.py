@@ -129,10 +129,14 @@ async def check_prompt(text: str, resource: str) -> GuardResult:
                     raw = resp.json() if resp.content else {}
                     return _parse_guard_response(raw)
 
-                # Non-2xx, non-403 — log and retry
+                # Non-2xx, non-403 — distinguishable from a network timeout:
+                # 429 = rate-limited Guard endpoint, 5xx = Guard server error.
+                # Log with event=guard_degraded so monitoring can alert on a
+                # running-but-overwhelmed Guard separately from a missing Guard.
                 logger.warning(
-                    "Guard API returned %d on attempt %d: %s",
-                    resp.status_code, attempt + 1, resp.text[:200],
+                    "guard_degraded: Guard API returned HTTP %d on attempt %d "
+                    "(event=guard_degraded url=%s): %s",
+                    resp.status_code, attempt + 1, url, resp.text[:200],
                 )
                 if attempt < _MAX_RETRY:
                     continue
